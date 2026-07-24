@@ -44,10 +44,6 @@ else:
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 SUPABASE_TABLE_PREFIX = os.environ.get("SUPABASE_TABLE_PREFIX", "amel_")
 
-# ─── دیتابیس جدا برای سشن اکانت‌ها (Supabase دوم) ──────────────────────────
-# اگه ست نشه، خودکار میفته روی همون DATABASE_URL اصلی (سازگار با قبل)
-SESSION_DATABASE_URL = os.environ.get("SESSION_DATABASE_URL", "") or DATABASE_URL
-
 # ─── Upstash Redis ─────────────────────────────────────────────────────────
 UPSTASH_REDIS_URL = os.environ.get("UPSTASH_REDIS_URL", "")
 

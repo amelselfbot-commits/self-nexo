@@ -24,56 +24,21 @@
 
 import io
 import asyncio
-import threading
 
 from telethon import TelegramClient, events
 from telethon.tl.custom import Button
 from telethon.sessions import StringSession
 import config
-from loop_manager import get_loop as get_shared_loop
 
 _helper_client = None  # سینگلتون - فقط یک بار در کل پروسس بالا میاد
 _helper_start_lock = None  # موقع اولین صدا زدنِ start_helper_bot ساخته می‌شه
-
-# ─── لوپ اختصاصیِ بات کمکی ───────────────────────────────────────────────────
-# بات کمکی قبلاً روی همون لوپِ مشترکِ سلف‌ها اجرا می‌شد — یعنی وقتی خیلی از
-# سلف‌ها هم‌زمان شلوغ بودن (پردازش پیام، دیتابیس و ...)، بات کمکی هم دیر جواب
-# می‌داد یا حتی تایم‌اوت می‌خورد («بات کمکی در دسترس نیست»). برای اینکه بات
-# کمکی همیشه سریع و مستقل جواب بده، یک event loop کاملاً جدا و اختصاصی فقط
-# برای خودش داره؛ تنها جایی که لازمه به لوپِ سلف‌ها برگرده، وقتیه که باید
-# روی کلاینتِ خودِ سلفِ کاربر (نه بات کمکی) دستوری اجرا کنه — اون بخش هم با
-# run_coroutine_threadsafe صریح به لوپِ مشترک پل زده می‌شه.
-_helper_loop = None
-_helper_loop_ready = threading.Event()
-
-
-def _get_helper_loop():
-    global _helper_loop
-    if _helper_loop is None:
-        def _runner():
-            global _helper_loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            _helper_loop = loop
-            _helper_loop_ready.set()
-            loop.run_forever()
-        threading.Thread(target=_runner, daemon=True).start()
-        _helper_loop_ready.wait(timeout=5)
-    return _helper_loop
-
-
-async def _run_on_shared_loop(coro):
-    """یک کوروتین رو که باید روی کلاینتِ سلفِ کاربر اجرا بشه، امن به لوپِ
-    مشترکِ سلف‌ها پل می‌زنه (چون اون کلاینت به اون لوپ وصله، نه لوپِ بات کمکی)."""
-    fut = asyncio.run_coroutine_threadsafe(coro, get_shared_loop())
-    return await asyncio.wrap_future(fut)
 
 MAIN_TEXT = "پنل مدیریت سلف\nیک دسته را انتخاب کن"
 DENIED_TEXT = "این پنل مخصوص کسی است که آن را باز کرده. دکمه‌ها برای شما فعال نیست."
 
 # ─── بستن خودکار پنل بعد از بیکار موندن ──────────────────────────────────────
-PANEL_IDLE_SECONDS = 60  # ۱ دقیقه
-IDLE_CLOSED_TEXT = "⏰ این پنل به‌خاطر ۱ دقیقه بیکار موندن بسته شد.\nبرای باز کردن دوباره، بنویس: پنل"
+PANEL_IDLE_SECONDS = 180  # ۳ دقیقه
+IDLE_CLOSED_TEXT = "⏰ این پنل به‌خاطر ۳ دقیقه بیکار موندن بسته شد.\nبرای باز کردن دوباره، بنویس: پنل"
 CLOSED_TEXT = "پنل بسته شد.\nبرای باز کردن دوباره،بنویس: پنل"
 _panel_timers = {}  # {(chat_id, message_id): asyncio.Task}
 _schedule_panel_timeout_impl = None  # موقع start_helper_bot ست میشه
@@ -82,15 +47,9 @@ _schedule_panel_timeout_impl = None  # موقع start_helper_bot ست میشه
 def schedule_panel_timeout(chat_id: int, message_id: int):
     """از بیرون (مثلاً bot.py، وقتی پنل تازه باز میشه) یا از داخل on_callback
     (وقتی پنل باز می‌مونه ولی داره استفاده می‌شه) صدا زده می‌شه تا تایمر
-    ۳ دقیقه‌ایِ بستن خودکار reset بشه. چون ممکنه صداکننده روی لوپِ مشترکِ
-    سلف‌ها باشه (نه لوپِ اختصاصیِ بات کمکی)، با call_soon_threadsafe مطمئن
-    می‌شیم تایمرِ واقعی روی همون لوپی ساخته می‌شه که کلاینتِ بات کمکی بهش
-    وصله."""
-    if _schedule_panel_timeout_impl is not None and _helper_loop is not None:
-        try:
-            _helper_loop.call_soon_threadsafe(_schedule_panel_timeout_impl, chat_id, message_id)
-        except Exception:
-            pass
+    ۳ دقیقه‌ایِ بستن خودکار reset بشه."""
+    if _schedule_panel_timeout_impl is not None:
+        _schedule_panel_timeout_impl(chat_id, message_id)
 
 
 def _category_text(title):
@@ -112,15 +71,13 @@ def _split_owner_tag(data: str):
     return data, None
 
 
-async def _start_helper_bot_impl():
+async def start_helper_bot():
     """
-    بات کمکی رو راه‌اندازی می‌کنه. فقط باید روی لوپِ اختصاصیِ بات کمکی
-    (_get_helper_loop) اجرا بشه — start_helper_bot (پایین همین فایل) این
-    کار رو تضمین می‌کنه. ایمن برای صدا زدنِ چندباره از چند جا (مثلاً موقع
-    بالا اومدن سرور، بعد از هر ثبت‌نامِ تازه، و توسط واچ‌داگِ دوره‌ای) — اگه
-    از قبل سالم و وصل باشه فوراً همون رو برمی‌گردونه، وگرنه یک اتصالِ تازه
-    می‌سازه. با قفل جلوگیری می‌کنه که دو تا فراخوانیِ هم‌زمان دو تا کلاینتِ
-    جدا با یک توکن بسازن.
+    بات کمکی رو راه‌اندازی می‌کنه. ایمن برای صدا زدنِ چندباره از چند جا
+    (مثلاً موقع بالا اومدن سرور، بعد از هر ثبت‌نامِ تازه، و توسط واچ‌داگِ
+    دوره‌ای) — اگه از قبل سالم و وصل باشه فوراً همون رو برمی‌گردونه، وگرنه
+    یک اتصالِ تازه می‌سازه. با قفل جلوگیری می‌کنه که دو تا فراخوانیِ هم‌زمان
+    دو تا کلاینتِ جدا با یک توکن بسازن.
     """
     global _helper_client, _helper_start_lock
 
@@ -473,7 +430,7 @@ async def _start_helper_bot_impl():
                     await _answer_info(event, direct[len("INFO::"):])
                 else:
                     await event.answer(f"در حال اجرا: {cat['title']}")
-                    await _run_on_shared_loop(_execute_panel_command(self_client, owner_id, direct))
+                    await _execute_panel_command(self_client, owner_id, direct)
                 return
             await event.edit(
                 _category_text(cat["title"]),
@@ -530,7 +487,7 @@ async def _start_helper_bot_impl():
                 return
 
             await event.answer(f"در حال اجرا: {label}")
-            await _run_on_shared_loop(_execute_panel_command(self_client, owner_id, command_text))
+            await _execute_panel_command(self_client, owner_id, command_text)
 
             # بعد از اجرا، همون دسته رو با وضعیت/رنگ تازه دوباره رسم می‌کنیم
             page = idx // 8  # باید هم‌راستا با PANEL_PAGE_SIZE در telegram_bot.py باشه
@@ -546,34 +503,3 @@ async def _start_helper_bot_impl():
         await event.answer("دکمه نامعتبر است.", alert=True)
 
     return cl
-
-
-# ─── API عمومی — امن برای صدا زدن از هر لوپی (لوپِ مشترکِ سلف‌ها یا هرجای دیگه) ──
-async def start_helper_bot():
-    """
-    نسخه‌ی امنِ بیرونی: کارِ واقعیِ اتصال (_start_helper_bot_impl) رو روی
-    لوپِ اختصاصیِ بات کمکی اجرا می‌کنه و بدون بلاک کردنِ لوپِ صداکننده،
-    منتظرِ نتیجه می‌مونه. از هر جای پروژه (app.py، main.py، bot.py) با
-    await یا run_coroutine_threadsafe قابل صدا زدنه.
-    """
-    loop = _get_helper_loop()
-    fut = asyncio.run_coroutine_threadsafe(_start_helper_bot_impl(), loop)
-    return await asyncio.wrap_future(fut)
-
-
-async def get_helper_username():
-    """
-    نام‌کاربریِ بات کمکی رو برمی‌گردونه (یا None اگه وصل نباشه) — امن برای
-    await شدن از لوپِ مشترکِ سلف‌ها، چون خودِ کلاینتِ بات کمکی روی یک لوپِ
-    کاملاً جدا اجراست و نمی‌شه متدهاش رو مستقیم از یک لوپِ دیگه await کرد.
-    """
-    if _helper_client is None or not _helper_client.is_connected():
-        return None
-    try:
-        async def _get():
-            me = await _helper_client.get_me()
-            return me.username
-        fut = asyncio.run_coroutine_threadsafe(_get(), _get_helper_loop())
-        return await asyncio.wrap_future(fut)
-    except Exception:
-        return None

@@ -61,12 +61,9 @@ from database_supabase import (
     is_subscribed as supa_is_subscribed,
     transfer_subscription as supa_transfer_subscription,
     create_payment as supa_create_payment,
-    set_payment_owner as supa_set_payment_owner,
     update_payment as supa_update_payment,
     get_payment as supa_get_payment,
     get_pending_payments as supa_get_pending_payments,
-    get_expired_subscriptions as supa_get_expired_subscriptions,
-    delete_account_completely as supa_delete_account_completely,
     SETTING_DEFAULTS,
     _hash_pw,
 )
@@ -193,9 +190,6 @@ def clear_friends(owner_id: int):
 def get_friend_count(owner_id: int) -> int:
     return cache.get_friend_count(owner_id)
 
-def purge_owner_cache(owner_id: int):
-    cache.purge_owner_cache(owner_id)
-
 # ─── توابع پیام ────────────────────────────────────────────────────────────────
 def save_message_slot(owner_id: int, slot: int, content, media_path=None):
     supa_save_message_slot(owner_id, slot, content, media_path)
@@ -308,18 +302,12 @@ def transfer_subscription(from_owner_id, to_owner_id):
     return supa_transfer_subscription(from_owner_id, to_owner_id)
 def create_payment(owner_id, tg_id, ptype, plan=None, diamond_amount=None, toman_amount=None):
     return supa_create_payment(owner_id, tg_id, ptype, plan, diamond_amount, toman_amount)
-def set_payment_owner(payment_id, owner_id):
-    return supa_set_payment_owner(payment_id, owner_id)
 def update_payment(payment_id, **kwargs):
     return supa_update_payment(payment_id, **kwargs)
 def get_payment(payment_id):
     return supa_get_payment(payment_id)
 def get_pending_payments():
     return supa_get_pending_payments()
-def get_expired_subscriptions():
-    return supa_get_expired_subscriptions()
-def delete_account_completely(owner_id):
-    return supa_delete_account_completely(owner_id)
 
 # ─── صادرات ────────────────────────────────────────────────────────────────────
 __all__ = [

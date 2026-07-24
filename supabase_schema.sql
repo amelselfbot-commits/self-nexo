@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS amel_subscriptions (
 
 CREATE TABLE IF NOT EXISTS amel_payments (
     id SERIAL PRIMARY KEY,
-    owner_id INTEGER,
+    owner_id INTEGER NOT NULL,
     tg_id BIGINT NOT NULL,
     type TEXT NOT NULL,
     plan TEXT,
@@ -156,9 +156,6 @@ CREATE TABLE IF NOT EXISTS amel_payments (
     admin_msg_id BIGINT,
     created_at TIMESTAMP DEFAULT NOW()
 );
--- ⚠️ اگر این جدول از قبل روی دیتابیستون هست، این خط رو هم اجرا کنید تا
--- owner_id بشه NULL-پذیر (لازمه چون خرید اولین پلن قبل از ساخت حساب پنل انجام می‌شه):
--- ALTER TABLE amel_payments ALTER COLUMN owner_id DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS amel_global_settings (
     key TEXT PRIMARY KEY,

@@ -697,22 +697,7 @@ class AdvancedBotManager:
             bool: True اگر اتصال موفق بود، False برای خطای بحرانی (توقف کامل)
         """
         try:
-            # ⚠️ عمداً از client.start() استفاده نمی‌کنیم: اگر session نامعتبر/خالی
-            # باشد، Telethon چون phone/bot_token نداره میفته توی پرامپت تعاملیِ
-            # input("Please enter your phone (or bot token): ") که روی سرور
-            # (بدون ترمینال تعاملی) بلافاصله با EOFError شکست می‌خوره — ولی قبل
-            # از اون، چون این فراخوانی synchronous و blocking هست، کل event loop
-            # مشترک (که بات کمکی هم روش اجرا میشه) رو برای بقیه‌ی تسک‌ها قفل
-            # می‌کنه. همین باعث میشد بات کمکی هیچ‌وقت نتونه تایم‌اوتش رو رد کنه
-            # و همیشه «بات کمکی هنوز آماده نیست» نشون داده بشه.
-            # به‌جاش فقط connect می‌کنیم و خودمون صریح چک می‌کنیم که session
-            # معتبره یا نه؛ اگه نبود، دقیقاً مثل قبل به‌عنوان session نامعتبر
-            # مدیریت میشه، بدون هیچ پرامپت تعاملی‌ای.
-            await client.connect()
-            if not await client.is_user_authorized():
-                logger.error("[%s] Session نامعتبر — نیاز به لاگین مجدد", owner_id)
-                self._invalidate_session(owner_id)
-                return False
+            await client.start()
             me = await client.get_me()
             logger.info(
                 "✅ [%s] بات متصل شد — @%s",

@@ -344,21 +344,7 @@ class BotManager:
                 entry["client"] = cl
                 _register_handlers(cl, owner_id, entry)
 
-                # ⚠️ عمداً از cl.start() استفاده نمی‌کنیم: وقتی session خالی/نامعتبر
-                # باشه و phone/bot_token هم ندیم، Telethon میفته توی پرامپت
-                # تعاملیِ input("Please enter your phone (or bot token): ") که چون
-                # این synchronous و blocking هست، کل event loop مشترک (همونی که
-                # بات کمکی پنل هم روش اجرا می‌شه) رو قفل می‌کنه — و چون سرور
-                # ترمینال تعاملی نداره، فوراً با EOFError شکست می‌خوره و این حلقه
-                # هر ۵ تا ۱۲۰ ثانیه دوباره همین بلاک رو تکرار می‌کنه. همین دقیقاً
-                # چیزیه که باعث می‌شد بات کمکی همیشه «هنوز آماده نیست» بمونه.
-                # به‌جاش فقط connect می‌کنیم و صریح چک می‌کنیم session معتبره یا نه.
-                await cl.connect()
-                if not await cl.is_user_authorized():
-                    print(f"❌ [{owner_id}] Session خالی یا نامعتبر — نیاز به لاگین مجدد")
-                    db.set_setting(owner_id, "logged_in", "0")
-                    db.set_setting(owner_id, "session_data", "")
-                    break
+                await cl.start()
                 me = await cl.get_me()
                 print(f"✅ [{owner_id}] بات راه‌اندازی شد — {me.first_name} (@{me.username})")
 
@@ -729,8 +715,15 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                     sent_via_helper = False
                     try:
                         if config.HELPER_BOT_TOKEN:
-                            from helper_bot import get_helper_username
-                            uname = await get_helper_username()
+                            from helper_bot import get_helper_client
+                            helper = get_helper_client()
+                            uname = None
+                            if helper:
+                                try:
+                                    me = await helper.get_me()
+                                    uname = me.username
+                                except Exception:
+                                    uname = None
                             if uname:
                                 results = await cl.inline_query(uname, "جوین")
                                 if results:
@@ -1395,8 +1388,15 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
             await cl.send_message(event.chat_id, "❗ پنل دکمه‌ای فعال نیست (بات کمکی تنظیم نشده).")
             return
 
-        from helper_bot import get_helper_username, start_helper_bot
-        uname = await get_helper_username()
+        from helper_bot import get_helper_client, start_helper_bot
+        helper = get_helper_client()
+        uname = None
+        if helper:
+            try:
+                me = await helper.get_me()
+                uname = me.username
+            except Exception:
+                uname = None
 
         if not uname:
             # بات کمکی هنوز وصل نشده (مثلاً کاربر همین الان ثبت‌نام کرده و
@@ -1404,10 +1404,15 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
             # نشده) — به‌جای شکست فوری، خودمون یک بار با timeout کوتاه تلاش
             # می‌کنیم وصلش کنیم و دوباره امتحان می‌کنیم.
             try:
-                await asyncio.wait_for(start_helper_bot(), timeout=20)
+                helper = await asyncio.wait_for(start_helper_bot(), timeout=20)
             except Exception:
-                pass
-            uname = await get_helper_username()
+                helper = None
+            if helper:
+                try:
+                    me = await helper.get_me()
+                    uname = me.username
+                except Exception:
+                    uname = None
 
         if not uname:
             await cl.send_message(event.chat_id, "❗ بات کمکی هنوز آماده نیست، کمی بعد دوباره امتحان کن.")

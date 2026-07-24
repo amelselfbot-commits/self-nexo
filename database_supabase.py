@@ -8,7 +8,6 @@ import psycopg2.extras
 from typing import Optional, Dict, List, Any
 from config import DATABASE_URL
 import redis_cache as rc
-import session_db
 
 # ─── اتصال به دیتابیس ──────────────────────────────────────────────────────────
 import threading
@@ -156,10 +155,7 @@ def init_tables():
             execute_query(query)
         except Exception as e:
             print(f"❌ Error creating table: {e}")
-
-    # جدول سشن‌ها روی دیتابیس جدا (Supabase دوم)
-    session_db.init_tables()
-
+    
     print("✅ جداول Supabase ایجاد/تأیید شدند!")
 
 # ─── حساب‌ها ──────────────────────────────────────────────────────────────────
@@ -303,27 +299,8 @@ def get_setting(owner_id: int, key: str, default=None) -> str:
         _settings_cache[ram_key] = cached
         return cached
 
-    # ۳. Supabase (کلیدهای سشن از دیتابیس جدا خونده می‌شن)
+    # ۳. Supabase
     try:
-        if key in session_db.SESSION_KEYS:
-            raw = session_db.get_session_value(owner_id, key)
-            if raw is None:
-                # ⚠️ هنوز تو دیتابیس جدید ثبت نشده — فال‌بک به دیتابیس قدیمی
-                # (amel_settings) برای کاربرهایی که هنوز migrate نشدن
-                try:
-                    old_query = "SELECT value FROM amel_settings WHERE owner_id = %s AND key = %s"
-                    old_result = execute_query(old_query, (owner_id, key), fetch_one=True)
-                    raw = old_result['value'] if old_result else None
-                except Exception:
-                    raw = None
-            if raw is not None:
-                val = raw
-            else:
-                val = str(SETTING_DEFAULTS.get(key, default) or "")
-            _settings_cache[ram_key] = val
-            rc.rset(rc.k_setting(owner_id, key), val, rc.TTL_SETTING)
-            return val
-
         query = "SELECT value FROM amel_settings WHERE owner_id = %s AND key = %s"
         result = execute_query(query, (owner_id, key), fetch_one=True)
         if result:
@@ -347,18 +324,15 @@ def get_setting(owner_id: int, key: str, default=None) -> str:
 
 def set_setting(owner_id: int, key: str, value):
     try:
-        if key in session_db.SESSION_KEYS:
-            session_db.set_session_value(owner_id, key, value)
-        else:
-            check_query = "SELECT 1 FROM amel_settings WHERE owner_id = %s AND key = %s"
-            exists = execute_query(check_query, (owner_id, key), fetch_one=True)
+        check_query = "SELECT 1 FROM amel_settings WHERE owner_id = %s AND key = %s"
+        exists = execute_query(check_query, (owner_id, key), fetch_one=True)
 
-            if exists:
-                query = "UPDATE amel_settings SET value = %s WHERE owner_id = %s AND key = %s"
-                execute_query(query, (str(value), owner_id, key))
-            else:
-                query = "INSERT INTO amel_settings (owner_id, key, value) VALUES (%s, %s, %s)"
-                execute_query(query, (owner_id, key, str(value)))
+        if exists:
+            query = "UPDATE amel_settings SET value = %s WHERE owner_id = %s AND key = %s"
+            execute_query(query, (str(value), owner_id, key))
+        else:
+            query = "INSERT INTO amel_settings (owner_id, key, value) VALUES (%s, %s, %s)"
+            execute_query(query, (owner_id, key, str(value)))
 
         str_val = str(value)
         _settings_cache[f"{owner_id}:{key}"] = str_val
@@ -1150,53 +1124,6 @@ def is_subscribed(owner_id: int) -> bool:
         return False
 
 
-def get_expired_subscriptions() -> list:
-    """اشتراک‌هایی که همین الان منقضی شده‌اند — برای پاکسازی خودکار حساب کاربر."""
-    try:
-        now_teh = _tehran_now()
-        rows = execute_query(
-            "SELECT owner_id, expires_at FROM amel_subscriptions WHERE expires_at <= %s",
-            (now_teh,), fetch_all=True
-        )
-        return [dict(r) for r in rows] if rows else []
-    except Exception as e:
-        print(f"❌ get_expired_subscriptions error: {e}")
-        return []
-
-
-def delete_account_completely(owner_id: int) -> bool:
-    """حذف کامل و برگشت‌ناپذیرِ یک حساب و تمام اطلاعات مرتبط با آن —
-    برای وقتی که اشتراک کاربر تمام می‌شود و باید هیچ اثری از حسابش نماند."""
-    try:
-        for t in (
-            "amel_settings", "amel_tokens", "amel_saved_messages",
-            "amel_scheduled_messages", "amel_deleted_messages",
-            "amel_subscriptions", "amel_payments", "amel_mission_completions",
-        ):
-            execute_query(f"DELETE FROM {t} WHERE owner_id=%s", (owner_id,))
-        execute_query("DELETE FROM amel_referrals WHERE referrer_owner_id=%s", (owner_id,))
-        execute_query("DELETE FROM amel_bets WHERE creator_id=%s OR opponent_id=%s", (owner_id, owner_id))
-        execute_query("DELETE FROM amel_bet_transactions WHERE user_id=%s", (owner_id,))
-        execute_query("DELETE FROM challenge_participants WHERE user_id=%s", (owner_id,))
-        execute_query("DELETE FROM amel_accounts WHERE id=%s", (owner_id,))
-
-        try:
-            rc.invalidate_all_settings(owner_id)
-            rc.invalidate_subscribe(owner_id)
-            rc.invalidate_token(owner_id)
-            rc.invalidate_enemies(owner_id)
-            rc.invalidate_friends(owner_id)
-            rc.invalidate_silent(owner_id)
-        except Exception:
-            pass
-
-        print(f"🗑️ حساب {owner_id} و تمام اطلاعاتش به‌طور کامل حذف شد")
-        return True
-    except Exception as e:
-        print(f"❌ delete_account_completely error: {e}")
-        return False
-
-
 def transfer_subscription(from_owner_id: int, to_owner_id: int) -> tuple:
     """انتقال باقی‌مانده‌ی اشتراک از یک حساب به حساب دیگر. خروجی: (success: bool, message: str)"""
     try:
@@ -1235,6 +1162,19 @@ def transfer_subscription(from_owner_id: int, to_owner_id: int) -> tuple:
     except Exception as e:
         print(f"❌ transfer_subscription error: {e}")
         return False, f"❌ خطا: {e}"
+
+
+def give_free_trial(owner_id: int) -> bool:
+    """یک روز سلف رایگان برای کاربر تازه‌وارد"""
+    try:
+        existing = get_subscription(owner_id)
+        if existing:
+            return False  # قبلاً اشتراک داشته
+        set_subscription(owner_id, "trial", 1)
+        return True
+    except Exception as e:
+        print(f"❌ give_free_trial error: {e}")
+        return False
 
 
 def get_expiring_soon_subscriptions(hours: int = 2) -> list:
@@ -1281,11 +1221,9 @@ def mark_subscription_notified(owner_id: int, status: str):
         print(f"❌ mark_subscription_notified error: {e}")
 
 
-def create_payment(owner_id: Optional[int], tg_id: int, ptype: str,
+def create_payment(owner_id: int, tg_id: int, ptype: str,
                    plan: str = None, diamond_amount: int = None,
                    toman_amount: int = None) -> Optional[int]:
-    """owner_id می‌تواند None باشد — برای کاربر جدیدی که هنوز حساب پنل نساخته
-    و اولین خریدش را قبل از هر چیز دیگری انجام می‌دهد."""
     try:
         r = execute_query(
             """INSERT INTO amel_payments
@@ -1297,14 +1235,6 @@ def create_payment(owner_id: Optional[int], tg_id: int, ptype: str,
     except Exception as e:
         print(f"❌ create_payment error: {e}")
         return None
-
-
-def set_payment_owner(payment_id: int, owner_id: int):
-    """بعد از تایید ادمین و ساخت حساب پنل برای کاربر جدید، پرداخت را به حساب تازه‌ساخته وصل می‌کند."""
-    try:
-        execute_query("UPDATE amel_payments SET owner_id=%s WHERE id=%s", (owner_id, payment_id))
-    except Exception as e:
-        print(f"❌ set_payment_owner error: {e}")
 
 
 def update_payment(payment_id: int, **kwargs):

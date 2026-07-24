@@ -303,19 +303,3 @@ def clear_friends(owner_id: int):
 
 def get_friend_count(owner_id: int) -> int:
     return len(get_friends(owner_id))
-
-
-def purge_owner_cache(owner_id: int):
-    """پاک کردن تمام داده‌های محلی (کش SQLite) یک حساب — برای وقتی که حساب کامل حذف می‌شود."""
-    try:
-        conn = get_conn()
-        c = conn.cursor()
-        c.execute("DELETE FROM silent_chats WHERE owner_id = ?", (owner_id,))
-        c.execute("DELETE FROM silent_users WHERE owner_id = ?", (owner_id,))
-        c.execute("DELETE FROM enemies WHERE owner_id = ?", (owner_id,))
-        c.execute("DELETE FROM friends WHERE owner_id = ?", (owner_id,))
-        conn.commit()
-        _invalidate_enemies(owner_id)
-        _invalidate_friends(owner_id)
-    except Exception as e:
-        print(f"❌ purge_owner_cache error: {e}")

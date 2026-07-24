@@ -142,7 +142,7 @@ def _remaining_str(dt) -> str:
 
 _bot = None
 BOT_USERNAME = None
-OWNER_TG_ID = config.OWNER_TG_ID
+OWNER_TG_ID = 8540004957
 
 # ─── پردازش ایموجی‌های پرمیوم در پیام «ارسال به کانال» ────────────────────────
 # الگو: متن[ایدی_عددی_ایموجی_پرمیوم]  → ایموجی پرمیوم جلوی متن قرار می‌گیرد
@@ -1515,6 +1515,64 @@ def start_token_bot():
     # ══════════════════════════════════════════════════════════════════════════
     # /start
     # ══════════════════════════════════════════════════════════════════════════
+    def _grant_free_trial(account_id: int, tg_id: int):
+        """یک روز سلف رایگان برای کاربران جدید — فقط اگر اشتراک نداشته باشند
+        و فقط پیام خوش‌آمد می‌فرستد؛ set_subscription صدا نمی‌زند چون در ثبت‌نام انجام شده."""
+        try:
+            existing = db.get_subscription(account_id)
+            if existing:
+                # اشتراک قبلاً وجود دارد — کاری نکن تا سلف قطع نشه
+                return
+            # اگر به هر دلیلی در ثبت‌نام ست نشده بود، اینجا ست می‌کنیم
+            expires = db.set_subscription(account_id, "free_trial", 1)
+            if expires:
+                exp_str = _fmt_tehran(expires)
+                try:
+                    _bot.send_message(
+                        tg_id,
+                        f"{EM.EMOJI_DAILY_GIFT} <b>یک روز سلف رایگان هدیه گرفتید!</b>\n\n"
+                        f"⏰ انقضا: <b>{exp_str}</b> (وقت تهران)\n\n"
+                        f"برای تمدید، از منوی 🛒 خرید استفاده کنید."
+                    )
+                except Exception:
+                    pass
+                # تایمر اطلاع‌رسانی انقضا
+                threading.Timer(86400, _notify_subscription_expired, args=[account_id, tg_id]).start()
+        except Exception as e:
+            print(f"❌ _grant_free_trial: {e}")
+
+    def _notify_subscription_expired(account_id: int, tg_id: int):
+        """اطلاع‌رسانی پایان اشتراک"""
+        try:
+            sub = db.get_subscription(account_id)
+            if not sub:
+                return
+            exp = sub.get("expires_at")
+            if isinstance(exp, str):
+                exp = datetime.datetime.fromisoformat(exp.replace("Z", "+00:00"))
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=datetime.timezone.utc)
+            if exp > datetime.datetime.now(datetime.timezone.utc):
+                return  # هنوز فعاله
+            site_url = getattr(config, "SITE_URL", "")
+            markup = types.InlineKeyboardMarkup()
+            # 🟢 دکمه تمدید با رنگ success (سبز)
+            markup.add(types.InlineKeyboardButton("🛒 تمدید اشتراک", callback_data="pur_sub_diamond", style="success"))
+            if site_url:
+                # 🔵 دکمه وب‌سایت با رنگ primary (آبی)
+                markup.add(types.InlineKeyboardButton("🌐 (دردسترس نیست) پنل وب", url=site_url, style="primary"))
+            try:
+                _bot.send_message(
+                    tg_id,
+                    "⏰ <b>اشتراک سلف شما به پایان رسید!</b>\n\n"
+                    "برای ادامه استفاده از سلف‌بات، اشتراک خود را تمدید کنید. 👇",
+                    reply_markup=markup
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"❌ _notify_subscription_expired: {e}")
+
     def _start_subscription_checker():
         """هر ۳۰ دقیقه اشتراک‌های نزدیک به انقضا رو چک می‌کنه"""
         def _checker():
@@ -1564,62 +1622,6 @@ def start_token_bot():
             print(f"❌ _check_expiring_subscriptions: {e}")
 
     _start_subscription_checker()
-
-    # ── پاکسازی خودکار: به‌محض پایان اشتراک، سلف قطع و کل اطلاعات حساب حذف می‌شود ──
-    def _purge_expired_account(owner_id: int):
-        try:
-            # دوباره چک می‌کنیم که یه‌وقت کاربر همین تازگی تمدید نکرده باشه (race condition)
-            if db.is_subscribed(owner_id):
-                return
-            tg_id = db.get_telegram_id_by_owner(owner_id)
-
-            # ۱. سلف رو کامل قطع کن
-            try:
-                from bot import bot_manager
-                bot_manager.stop(owner_id)
-            except Exception as e:
-                print(f"⚠️ bot_manager.stop در پاکسازی انقضا: {e}")
-
-            # ۲. به کاربر اطلاع بده (قبل از حذف، چون بعدش دیگه tg_id رو نداریم)
-            if tg_id:
-                try:
-                    markup = types.InlineKeyboardMarkup()
-                    markup.add(types.InlineKeyboardButton("🛒 خرید اشتراک جدید", callback_data="pur_sub_card", style="success"))
-                    _bot.send_message(
-                        tg_id,
-                        "⌛ <b>اشتراک شما به پایان رسید.</b>\n\n"
-                        "سلف‌بات از حسابتون قطع شد و کل اطلاعات حسابتون حذف شد.\n"
-                        "برای ادامه، یک پلن جدید بخرید 👇",
-                        reply_markup=markup
-                    )
-                except Exception:
-                    pass
-
-            # ۳. حذف کامل اطلاعات حساب از دیتابیس
-            db.delete_account_completely(owner_id)
-            db.purge_owner_cache(owner_id)
-            if tg_id:
-                cache.invalidate(f"account_{tg_id}")
-        except Exception as e:
-            print(f"❌ _purge_expired_account: {e}")
-
-    def _start_expiry_purge_loop():
-        """هر ۶۰ ثانیه اشتراک‌های همین‌الان‌منقضی‌شده رو پیدا و کامل پاکسازی می‌کنه"""
-        def _loop():
-            while True:
-                try:
-                    time.sleep(60)
-                    for row in db.get_expired_subscriptions():
-                        try:
-                            _purge_expired_account(row["owner_id"])
-                        except Exception as e:
-                            print(f"❌ purge owner {row.get('owner_id')}: {e}")
-                except Exception as e:
-                    print(f"❌ expiry purge loop: {e}")
-        threading.Thread(target=_loop, daemon=True).start()
-
-    _start_expiry_purge_loop()
-
 
     # ══════════════════════════════════════════════════════════════════════════
     # 🆕 ساخت اکانت از طریق ربات — فلوی کامل Telethon
@@ -1707,6 +1709,13 @@ def start_token_bot():
             # هدیه خوش‌آمد
             db.add_tokens(new_id, config.WELCOME_TOKENS)
 
+            # اشتراک رایگان یک‌روزه برای کاربر جدید
+            try:
+                if not db.get_subscription(new_id):
+                    db.set_subscription(new_id, "free_trial", 1)
+            except Exception as _e:
+                print(f"⚠️ set free_trial on register: {_e}")
+
             _reg_clear(tg_id)
 
             def _start_new(_acc_id, _tg_id):
@@ -1717,6 +1726,7 @@ def start_token_bot():
                     bot_manager.start(_acc_id, get_loop(), check_tokens=False)
                 except Exception as _e:
                     print(f"⚠️ bot_manager.start (new): {_e}")
+                threading.Timer(86400, _notify_subscription_expired, args=[_acc_id, _tg_id]).start()
             threading.Thread(target=_start_new, args=(new_id, tg_id), daemon=True).start()
 
             site_url = getattr(config, "SITE_URL", "")
@@ -1728,7 +1738,8 @@ def start_token_bot():
                 f"🎉 <b>اکانت ساخته شد!</b>\n\n"
                 f"👤 نام: <b>{tg_user['name']}</b>\n"
                 f"🔑 یوزرنیم پنل: <code>{candidate}</code>\n\n"
-                f"{EM.EMOJI_DAILY_GIFT} <b>{config.WELCOME_TOKENS} الماس</b> هدیه خوش‌آمد دریافت کردید!\n\n"
+                f"{EM.EMOJI_DAILY_GIFT} <b>{config.WELCOME_TOKENS} الماس</b> هدیه خوش‌آمد دریافت کردید!\n"
+                f"⏰ <b>۱ روز سلف رایگان</b> فعال شد!\n\n"
                 f"✅ سلف‌بات در حال اتصال است — چند لحظه صبر کنید.",
                 chat_id, message_id,
                 reply_markup=markup_done,
@@ -1802,28 +1813,9 @@ def start_token_bot():
         tg_id = call.from_user.id
         _bot.answer_callback_query(call.id)
 
-        # ── وصل کردن سلف فقط برای کسی مجازه که حساب پنل داره و اشتراکش فعاله
-        # (حساب پنل فقط بعد از تایید خرید توسط ادمین ساخته می‌شه) ─────────────
-        existing_acc = db.get_account_by_tg_id(tg_id)
-        if not existing_acc or not db.is_subscribed(existing_acc["id"]):
-            markup = types.InlineKeyboardMarkup(row_width=1)
-            markup.add(types.InlineKeyboardButton("🛒 خرید اشتراک سلف", callback_data="pur_sub_card", style="success"))
-            try:
-                _bot.edit_message_text(
-                    "❌ <b>برای وصل کردن سلف، اول باید یک پلن اشتراک بخری.</b>",
-                    chat_id=call.message.chat.id, message_id=call.message.message_id,
-                    reply_markup=markup,
-                )
-            except Exception:
-                _bot.send_message(
-                    tg_id,
-                    "❌ <b>برای وصل کردن سلف، اول باید یک پلن اشتراک بخری.</b>",
-                    reply_markup=markup,
-                )
-            return
-
         # اگر قبلاً شماره‌ای برای این کاربر ثبت شده (ثبت‌نام قبلی/اتصال مجدد سلف)
         # → بدون سوال دوباره، مستقیم کد تایید به همان شماره فرستاده می‌شود
+        existing_acc = db.get_account_by_tg_id(tg_id)
         stored_phone = db.get_setting(existing_acc["id"], "phone", "") if existing_acc else ""
 
         if stored_phone:
@@ -2642,7 +2634,7 @@ def start_token_bot():
             site_url = getattr(config, "SITE_URL", "")
 
             if not account:
-                # ذخیره کد رفرال — بعد از تایید خرید توسط ادمین اعمال می‌شود
+                # ذخیره کد رفرال در سشن در صورت وجود
                 if ref_code and ref_code.startswith("ref_"):
                     try:
                         referrer_tg = int(ref_code[4:])
@@ -2651,16 +2643,32 @@ def start_token_bot():
                     except Exception:
                         pass
 
-                markup = _purchase_main_keyboard()
+                markup = types.InlineKeyboardMarkup(row_width=1)
+                # 🟢 دکمه ساخت اکانت با ربات با رنگ success (سبز)
+                markup.add(
+                    types.InlineKeyboardButton("🤖 ساخت اکانت با ربات", callback_data="reg_start", style="success")
+                )
+                if site_url:
+                    # 🔵 دکمه ساخت با وب‌سایت با رنگ primary (آبی)
+                    markup.add(types.InlineKeyboardButton("🌐 ساخت اکانت با وب سایت", url=site_url + "/register", style="primary"))
                 markup.add(types.InlineKeyboardButton("📖 راهنما", callback_data="guide_menu", style="primary"))
                 _bot.reply_to(
                     message,
                     "👋 <b>سلام!</b>\n\n"
-                    "برای استفاده از سلف‌بات، اول باید یک پلن اشتراک بخری 👇\n\n"
-                    "بعد از پرداخت و تایید ادمین، حساب پنلت ساخته می‌شه و می‌تونی سلف رو وصل کنی.",
+                    "❌ اکانت نداری! برای استفاده از ربات باید اکانت بسازی:\n\n"
+                    "🤖 <b>ساخت با ربات</b> — مستقیم از همینجا، بدون نیاز به سایت\n"
+                    "🌐 <b>ساخت با وب سایت</b> — از طریق پنل وب",
                     reply_markup=markup,
                 )
                 return
+
+            # سلف رایگان فقط برای کاربری که هیچ اشتراکی ندارد
+            # (جلوگیری از فراخوانی set_subscription هر بار و قطع شدن سلف)
+            try:
+                if not db.get_subscription(account["id"]):
+                    threading.Thread(target=_grant_free_trial, args=[account["id"], tg_id], daemon=True).start()
+            except Exception:
+                pass
 
             # اگر سلف از اکانت حذف شده → دکمه وصل کردن دوباره نمایش بده
             if message.chat.type == 'private':
@@ -2969,59 +2977,18 @@ def start_token_bot():
         except Exception as e:
             print(f"❌ خطا در _do_buy: {e}")
 
-    # ── ساخت حساب پنل بعد از تایید اولین خرید یک کاربر جدید توسط ادمین ─────────
-    def _create_account_from_payment(payment):
-        tg_id_val = payment["tg_id"]
-        try:
-            chat = _bot.get_chat(tg_id_val)
-            username_tg = getattr(chat, "username", None)
-            first_name = getattr(chat, "first_name", "") or ""
-        except Exception:
-            username_tg = None
-            first_name = ""
-        base_username = (username_tg or first_name or f"user{tg_id_val}").lower()
-        base_username = "".join(c for c in base_username if c.isalnum() or c == "_")[:20] or f"user{tg_id_val}"
-        candidate = base_username
-        suffix = 1
-        while db.get_account_by_username(candidate):
-            candidate = f"{base_username}{suffix}"
-            suffix += 1
-        auto_password = secrets.token_urlsafe(24)
-        new_id = db.create_account(candidate, auto_password)
-        if not new_id:
-            return None
-        db.init_user_settings(new_id)
-        db.save_telegram_user_id(new_id, tg_id_val)
-        db.add_tokens(new_id, config.WELCOME_TOKENS)
-        db.set_payment_owner(payment["id"], new_id)
-
-        # رفرال — اگر موقع /start لینک رفرال داشته
-        ref_info = _reg_sessions.get(tg_id_val, {})
-        ref_tg = ref_info.get("referrer_tg_id")
-        if ref_tg:
-            try:
-                threading.Thread(target=_process_referral_async, args=(ref_tg, tg_id_val), daemon=True).start()
-            except Exception:
-                pass
-            _reg_sessions.pop(tg_id_val, None)
-
-        cache.invalidate(f"account_{tg_id_val}")
-        return new_id, candidate
-
     # ── Callback اصلی خرید ────────────────────────────────────────────────────
     @_bot.callback_query_handler(func=lambda call: call.data.startswith("pur_"))
     def callback_purchase(call):
         try:
             data = call.data
             tg_id = call.from_user.id
-            # ⚠️ ممکنه اکانت نداشته باشه (کاربر جدیدی که اولین اشتراکش رو می‌خره)
             account = _get_account_cached(tg_id)
+            if not account:
+                return _bot.answer_callback_query(call.id, "❌ ابتدا در پنل وب ثبت‌نام کنید.", show_alert=True)
 
             # ── بازگشت ──────────────────────────────────────────────────────
             if data == "pur_back":
-                if not account:
-                    _purchase_states.pop(tg_id, None)
-                    return _bot.answer_callback_query(call.id, "برای بازگشت به منو باید اکانت داشته باشید.", show_alert=True)
                 balance = db.get_token_balance(account["id"])
                 _purchase_states.pop(tg_id, None)
                 return _bot.edit_message_text(
@@ -3032,8 +2999,6 @@ def start_token_bot():
 
             # ── اشتراک با الماس ─────────────────────────────────────────────
             elif data == "pur_sub_diamond":
-                if not account:
-                    return _bot.answer_callback_query(call.id, "❌ خرید با الماس فقط بعد از فعال شدن اولین اشتراک امکان دارد — از «خرید با کارت» استفاده کنید.", show_alert=True)
                 balance = db.get_token_balance(account["id"])
                 text = (
                     f"{EM.EMOJI_DIAMONDS} <b>خرید اشتراک با الماس</b>\n\n"
@@ -3046,8 +3011,6 @@ def start_token_bot():
                 _bot.answer_callback_query(call.id)
 
             elif data.startswith("pur_sdiam_"):
-                if not account:
-                    return _bot.answer_callback_query(call.id, "❌ ابتدا با کارت خرید کنید.", show_alert=True)
                 plan_key = data.split("_", 2)[2]
                 plan = PLANS.get(plan_key)
                 if not plan:
@@ -3101,7 +3064,7 @@ def start_token_bot():
                     return _bot.answer_callback_query(call.id, "❌ پلن نامعتبر", show_alert=True)
                 card = _get_card_number()
                 payment_id = db.create_payment(
-                    account["id"] if account else None, tg_id, "subscription",
+                    account["id"], tg_id, "subscription",
                     plan=plan_key, toman_amount=plan["toman"]
                 )
                 _purchase_states[tg_id] = {"step": "waiting_receipt_sub", "payment_id": payment_id}
@@ -3121,8 +3084,6 @@ def start_token_bot():
 
             # ── خرید الماس ──────────────────────────────────────────────────
             elif data == "pur_buy_diamond":
-                if not account:
-                    return _bot.answer_callback_query(call.id, "❌ خرید الماس فقط بعد از فعال شدن اولین اشتراک امکان دارد.", show_alert=True)
                 card = _get_card_number()
                 _purchase_states[tg_id] = {"step": "waiting_diamond_amount"}
                 markup = types.InlineKeyboardMarkup()
@@ -3153,42 +3114,20 @@ def start_token_bot():
 
                 if action == "approve":
                     db.update_payment(payment_id, status="approved")
+                    user_account = db.get_account(payment["owner_id"])
 
                     if payment["type"] == "subscription":
                         plan_key = payment["plan"]
                         plan = PLANS.get(plan_key, {})
-                        owner_id = payment["owner_id"]
-                        new_username = None
-
-                        if owner_id is None:
-                            result = _create_account_from_payment(payment)
-                            if not result:
-                                _bot.answer_callback_query(call.id, "❌ خطا در ساخت حساب کاربر", show_alert=True)
-                                return
-                            owner_id, new_username = result
-
-                        expires = db.set_subscription(owner_id, plan_key, plan.get("days", 30))
+                        expires = db.set_subscription(payment["owner_id"], plan_key, plan.get("days", 30))
                         exp_str = expires.strftime("%Y-%m-%d") if expires else "نامشخص"
                         try:
-                            if new_username:
-                                markup_connect = types.InlineKeyboardMarkup()
-                                markup_connect.add(types.InlineKeyboardButton("🔌 وصل کردن سلف", callback_data="reg_start", style="success"))
-                                _bot.send_message(
-                                    payment["tg_id"],
-                                    f"✅ <b>پرداخت تأیید شد!</b>\n\n"
-                                    f"🎉 اشتراک {plan.get('fa','')} فعال شد\n"
-                                    f"📅 انقضا: <b>{exp_str}</b>\n"
-                                    f"🔑 یوزرنیم پنل: <code>{new_username}</code>\n\n"
-                                    f"حالا می‌تونی سلف رو وصل کنی 👇",
-                                    reply_markup=markup_connect
-                                )
-                            else:
-                                _bot.send_message(
-                                    payment["tg_id"],
-                                    f"✅ <b>پرداخت تأیید شد!</b>\n\n"
-                                    f"🎉 اشتراک {plan.get('fa','')  } شما فعال شد\n"
-                                    f"📅 انقضا: <b>{exp_str}</b>"
-                                )
+                            _bot.send_message(
+                                payment["tg_id"],
+                                f"✅ <b>پرداخت تأیید شد!</b>\n\n"
+                                f"🎉 اشتراک {plan.get('fa','')  } شما فعال شد\n"
+                                f"📅 انقضا: <b>{exp_str}</b>"
+                            )
                         except Exception: pass
 
                     elif payment["type"] == "diamond":
@@ -3248,11 +3187,11 @@ def start_token_bot():
             state = _purchase_states.get(tg_id, {})
             step = state.get("step")
             account = _get_account_cached(tg_id)
+            if not account:
+                return
 
             # ── کاربر تعداد الماس رو نوشت ───────────────────────────────
             if step == "waiting_diamond_amount":
-                if not account:
-                    return
                 try:
                     amount = int(message.text.strip())
                 except (ValueError, AttributeError):
@@ -3306,11 +3245,8 @@ def start_token_bot():
                 else:
                     desc = f"خرید {payment.get('diamond_amount', 0)} الماس — {payment.get('toman_amount', 0):,} تومان"
 
-                is_new_account = payment.get("owner_id") is None
-                account_note = "🆕 <b>حساب جدید</b> — با تایید، حساب پنل ساخته می‌شه" if is_new_account else "🔄 تمدید/شارژ حساب موجود"
                 admin_text = (
                     f"🧾 <b>رسید جدید</b>\n\n"
-                    f"{account_note}\n"
                     f"👤 کاربر: {user_display}\n"
                     f"🆔 تلگرام: <code>{tg_id}</code>\n"
                     f"📦 نوع: {desc}\n"

@@ -49,15 +49,24 @@ def unhandled_exception(e):
     return jsonify({"ok": False, "error": f"خطای غیرمنتظره: {str(e)}"}), 500
 
 
-# ─── event loop مشترک برای Telethon (همون لوپِ کانونیِ loop_manager) ─────────
-from loop_manager import get_loop, run_async as _run_async
+# ─── event loop جداگانه برای Telethon ────────────────────────────────────────
+_loop = None
 _login_clients = {}   # {owner_id: TelegramClient} برای فرایند لاگین
 _phone_hashes = {}    # {owner_id: phone_code_hash}
 _phone_numbers = {}   # {owner_id: phone}
 
 
+def get_loop():
+    global _loop
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        t = threading.Thread(target=_loop.run_forever, daemon=True)
+        t.start()
+    return _loop
+
+
 def run_async(coro):
-    return _run_async(coro, timeout=30)
+    return asyncio.run_coroutine_threadsafe(coro, get_loop()).result(timeout=30)
 
 
 # ─── احراز هویت پنل ───────────────────────────────────────────────────────────
