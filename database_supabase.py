@@ -8,6 +8,7 @@ import psycopg2.extras
 from typing import Optional, Dict, List, Any
 from config import DATABASE_URL
 import redis_cache as rc
+import session_db
 
 # ─── اتصال به دیتابیس ──────────────────────────────────────────────────────────
 import threading
@@ -155,7 +156,10 @@ def init_tables():
             execute_query(query)
         except Exception as e:
             print(f"❌ Error creating table: {e}")
-    
+
+    # جدول سشن‌ها روی دیتابیس جدا (Supabase دوم)
+    session_db.init_tables()
+
     print("✅ جداول Supabase ایجاد/تأیید شدند!")
 
 # ─── حساب‌ها ──────────────────────────────────────────────────────────────────
@@ -299,8 +303,18 @@ def get_setting(owner_id: int, key: str, default=None) -> str:
         _settings_cache[ram_key] = cached
         return cached
 
-    # ۳. Supabase
+    # ۳. Supabase (کلیدهای سشن از دیتابیس جدا خونده می‌شن)
     try:
+        if key in session_db.SESSION_KEYS:
+            raw = session_db.get_session_value(owner_id, key)
+            if raw is not None:
+                val = raw
+            else:
+                val = str(SETTING_DEFAULTS.get(key, default) or "")
+            _settings_cache[ram_key] = val
+            rc.rset(rc.k_setting(owner_id, key), val, rc.TTL_SETTING)
+            return val
+
         query = "SELECT value FROM amel_settings WHERE owner_id = %s AND key = %s"
         result = execute_query(query, (owner_id, key), fetch_one=True)
         if result:
@@ -324,15 +338,18 @@ def get_setting(owner_id: int, key: str, default=None) -> str:
 
 def set_setting(owner_id: int, key: str, value):
     try:
-        check_query = "SELECT 1 FROM amel_settings WHERE owner_id = %s AND key = %s"
-        exists = execute_query(check_query, (owner_id, key), fetch_one=True)
-
-        if exists:
-            query = "UPDATE amel_settings SET value = %s WHERE owner_id = %s AND key = %s"
-            execute_query(query, (str(value), owner_id, key))
+        if key in session_db.SESSION_KEYS:
+            session_db.set_session_value(owner_id, key, value)
         else:
-            query = "INSERT INTO amel_settings (owner_id, key, value) VALUES (%s, %s, %s)"
-            execute_query(query, (owner_id, key, str(value)))
+            check_query = "SELECT 1 FROM amel_settings WHERE owner_id = %s AND key = %s"
+            exists = execute_query(check_query, (owner_id, key), fetch_one=True)
+
+            if exists:
+                query = "UPDATE amel_settings SET value = %s WHERE owner_id = %s AND key = %s"
+                execute_query(query, (str(value), owner_id, key))
+            else:
+                query = "INSERT INTO amel_settings (owner_id, key, value) VALUES (%s, %s, %s)"
+                execute_query(query, (owner_id, key, str(value)))
 
         str_val = str(value)
         _settings_cache[f"{owner_id}:{key}"] = str_val

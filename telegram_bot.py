@@ -142,7 +142,7 @@ def _remaining_str(dt) -> str:
 
 _bot = None
 BOT_USERNAME = None
-OWNER_TG_ID = 8540004957
+OWNER_TG_ID = config.OWNER_TG_ID
 
 # ─── پردازش ایموجی‌های پرمیوم در پیام «ارسال به کانال» ────────────────────────
 # الگو: متن[ایدی_عددی_ایموجی_پرمیوم]  → ایموجی پرمیوم جلوی متن قرار می‌گیرد
@@ -2651,11 +2651,7 @@ def start_token_bot():
                     except Exception:
                         pass
 
-                markup = types.InlineKeyboardMarkup(row_width=1)
-                # 🟢 دکمه خرید با رنگ success (سبز)
-                markup.add(
-                    types.InlineKeyboardButton("🛒 خرید اشتراک سلف", callback_data="pur_sub_card", style="success")
-                )
+                markup = _purchase_main_keyboard()
                 markup.add(types.InlineKeyboardButton("📖 راهنما", callback_data="guide_menu", style="primary"))
                 _bot.reply_to(
                     message,
