@@ -307,6 +307,15 @@ def get_setting(owner_id: int, key: str, default=None) -> str:
     try:
         if key in session_db.SESSION_KEYS:
             raw = session_db.get_session_value(owner_id, key)
+            if raw is None:
+                # ⚠️ هنوز تو دیتابیس جدید ثبت نشده — فال‌بک به دیتابیس قدیمی
+                # (amel_settings) برای کاربرهایی که هنوز migrate نشدن
+                try:
+                    old_query = "SELECT value FROM amel_settings WHERE owner_id = %s AND key = %s"
+                    old_result = execute_query(old_query, (owner_id, key), fetch_one=True)
+                    raw = old_result['value'] if old_result else None
+                except Exception:
+                    raw = None
             if raw is not None:
                 val = raw
             else:
