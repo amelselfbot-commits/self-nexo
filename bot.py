@@ -1388,25 +1388,18 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
             await cl.send_message(event.chat_id, "❗ پنل دکمه‌ای فعال نیست (بات کمکی تنظیم نشده).")
             return
 
-        from helper_bot import get_helper_client, start_helper_bot
-        helper = get_helper_client()
-        uname = None
-        if helper:
-            try:
-                me = await helper.get_me()
-                uname = me.username
-            except Exception:
-                uname = None
+        from helper_bot import get_helper_client, start_helper_bot, schedule_panel_timeout
 
-        if not uname:
-            # بات کمکی هنوز وصل نشده (مثلاً کاربر همین الان ثبت‌نام کرده و
-            # اتصالِ فایر-اند-فورگتِ start_helper_bot توی app.py هنوز کامل
-            # نشده) — به‌جای شکست فوری، خودمون یک بار با timeout کوتاه تلاش
-            # می‌کنیم وصلش کنیم و دوباره امتحان می‌کنیم.
-            try:
-                helper = await asyncio.wait_for(start_helper_bot(), timeout=20)
-            except Exception:
-                helper = None
+        last_err = None
+        max_wait = 120  # حداکثر مجموع زمانی که صبر می‌کنیم (ثانیه)
+        interval = 2    # فاصله‌ی بین هر تلاش (ثانیه)
+        started = asyncio.get_event_loop().time()
+        sent = None
+
+        while True:
+            # ۱) مطمئن شو بات کمکی وصله؛ اگه نیست، خودش سعی می‌کنه وصل بشه
+            helper = get_helper_client()
+            uname = None
             if helper:
                 try:
                     me = await helper.get_me()
@@ -1414,40 +1407,42 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
                 except Exception:
                     uname = None
 
-        if not uname:
-            await cl.send_message(event.chat_id, "❗ بات کمکی هنوز آماده نیست، کمی بعد دوباره امتحان کن.")
-            return
+            if not uname:
+                try:
+                    helper = await start_helper_bot()
+                    if helper:
+                        me = await helper.get_me()
+                        uname = me.username
+                except Exception as e:
+                    last_err = str(e)
+                    uname = None
 
-        last_err = None
-        max_wait = 120  # حداکثر مجموع زمانی که صبر می‌کنیم (ثانیه)
-        interval = 2    # فاصله‌ی بین هر تلاش (ثانیه)
-        started = asyncio.get_event_loop().time()
-        attempt = 0
-        while True:
-            attempt += 1
-            try:
-                results = await cl.inline_query(uname, "پنل")
-                if results:
-                    sent = await results[0].click(event.chat_id)
-                    if sent is not None:
-                        try:
-                            from helper_bot import schedule_panel_timeout
-                            schedule_panel_timeout(sent.chat_id, sent.id)
-                        except Exception:
-                            pass
-                    last_err = None
-                    break
-                else:
-                    last_err = "نتیجه‌ای از بات کمکی دریافت نشد."
-            except Exception as e:
-                last_err = str(e)
+            # ۲) اگه بات کمکی آماده بود، حالا دکمه‌ی پنل رو بگیر و بزن
+            if uname:
+                try:
+                    results = await cl.inline_query(uname, "پنل")
+                    if results:
+                        sent = await results[0].click(event.chat_id)
+                        last_err = None
+                        break
+                    else:
+                        last_err = "نتیجه‌ای از بات کمکی دریافت نشد."
+                except Exception as e:
+                    last_err = str(e)
+            elif not last_err:
+                last_err = "بات کمکی هنوز وصل نشده."
 
             elapsed = asyncio.get_event_loop().time() - started
             if elapsed >= max_wait:
                 break
             await asyncio.sleep(interval)
 
-        if last_err:
+        if sent is not None:
+            try:
+                schedule_panel_timeout(sent.chat_id, sent.id)
+            except Exception:
+                pass
+        elif last_err:
             await cl.send_message(event.chat_id, f"❗ خطا در باز کردن پنل: {last_err}")
 
     # ─── دستورهای روشن/خاموش جدید پنل (قفل‌ها، ساعت پرمیوم، حالت‌های متن) ─────
