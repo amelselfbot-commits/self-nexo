@@ -1666,7 +1666,7 @@ def start_token_bot():
                     time.sleep(1.5)
                     try:
                         from bot import bot_manager
-                        from loop_manager import get_loop
+                        from app import get_loop
                         bot_manager.start(_acc_id, get_loop(), check_tokens=False)
                     except Exception as _e:
                         print(f"⚠️ bot_manager.start (existing): {_e}")
@@ -1722,7 +1722,7 @@ def start_token_bot():
                 time.sleep(1.5)
                 try:
                     from bot import bot_manager
-                    from loop_manager import get_loop
+                    from app import get_loop
                     bot_manager.start(_acc_id, get_loop(), check_tokens=False)
                 except Exception as _e:
                     print(f"⚠️ bot_manager.start (new): {_e}")
@@ -2341,7 +2341,7 @@ def start_token_bot():
 
             elif data == "self_mgmt_start":
                 from bot import bot_manager
-                from loop_manager import get_loop
+                from app import get_loop
                 import time as _time
                 if _is_user_banned(acc_id):
                     return _bot.answer_callback_query(

@@ -669,18 +669,6 @@ class AdvancedBotManager:
             connection_retries=5,
             retry_delay=2,
             auto_reconnect=True,
-            # ⏱️ پیش‌فرضِ Telethon برای flood_sleep_threshold برابر ۶۰ ثانیه‌ست:
-            # یعنی اگه تلگرام روی یک درخواست (مثلاً inline_query به بات کمکی)
-            # یک FloodWaitError با مدتِ کمتر از ۶۰ ثانیه برگردونه، Telethon
-            # خودش، بی‌سر و صدا و بدون هیچ Exception ای، همون‌جا
-            # asyncio.sleep(wait) می‌کنه و بعد درخواست رو دوباره می‌فرسته.
-            # دقیقاً همین باعثِ اون «تا یک دقیقه تلاش» می‌شه که کاربرهای
-            # تازه (سشن‌های تازه‌ی تلگرام که هنوز محدودیتِ ضدِ اسپمِ اکانتِ
-            # جدید روشون هست) موقعِ نوشتنِ «پنل» تجربه‌ش می‌کنن — نه کدِ ما،
-            # بلکه خودِ Telethon داشته منتظر می‌مونده. با صفر کردنش،
-            # FloodWaitError فوراً raise می‌شه و می‌تونیم خودمون تصمیم
-            # بگیریم (پیام واضح به کاربر بدیم به‌جای معطلی نامرئی).
-            flood_sleep_threshold=0,
         )
 
     async def _register_bot_handlers(
