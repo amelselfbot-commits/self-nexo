@@ -1388,6 +1388,16 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
             await cl.send_message(event.chat_id, "❗ پنل دکمه‌ای فعال نیست (بات کمکی تنظیم نشده).")
             return
 
+        # ─── ارسالِ بنرِ پنل با عکسِ پروفایلِ خودِ کاربر وسطِ قاب ─────────────────
+        try:
+            import tempfile as _tempfile
+            avatar_path = await cl.download_profile_photo("me", file=_tempfile.mktemp(suffix=".jpg"))
+            from panel_banner import build_panel_banner
+            banner_path = build_panel_banner(avatar_path) if avatar_path else build_panel_banner(None)
+            await cl.send_file(event.chat_id, banner_path)
+        except Exception as _e:
+            print(f"⚠️ خطا در ساخت/ارسالِ بنرِ پنل: {_e}")
+
         from helper_bot import get_helper_client, start_helper_bot, schedule_panel_timeout
 
         last_err = None
@@ -2145,6 +2155,31 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
                 except Exception:
                     pass
         await edit(f"ترک همگانی کانال انجام شد. تعداد: {count}")
+
+    # ─── حذف همگانی پیوی‌ها (دوطرفه/یکطرفه) ────────────────────────────────
+    elif text == "حذف دوطرفه پیوی ها":
+        await edit("در حال حذف دوطرفه‌ی همه‌ی پیوی‌ها...")
+        count = 0
+        async for dialog in cl.iter_dialogs():
+            if dialog.is_user:
+                try:
+                    await cl.delete_dialog(dialog, revoke=True)
+                    count += 1
+                except Exception:
+                    pass
+        await edit(f"حذف دوطرفه‌ی پیوی‌ها انجام شد. تعداد: {count}")
+
+    elif text == "حذف یکطرفه پیوی ها":
+        await edit("در حال حذف یکطرفه‌ی همه‌ی پیوی‌ها...")
+        count = 0
+        async for dialog in cl.iter_dialogs():
+            if dialog.is_user:
+                try:
+                    await cl.delete_dialog(dialog, revoke=False)
+                    count += 1
+                except Exception:
+                    pass
+        await edit(f"حذف یکطرفه‌ی پیوی‌ها انجام شد. تعداد: {count}")
 
     # ─── تبدیل ویدیوی ریپلای‌شده به گیف ──────────────────────────────────────
     elif text == "تبدیل به گیف":
@@ -3932,6 +3967,7 @@ PANEL_CATEGORIES = {
             ("دانلود پست تلگرام", "INFO::برای استفاده تایپ کن: دانلود [لینک پست]\nمثال: دانلود https://t.me/channel/123\nبرای کانال خصوصی: دانلود https://t.me/c/123456789/123"),
             ("دانلود اینستاگرام", "INFO::برای استفاده تایپ کن: اینستا [لینک پست یا ریل]\nمثال: اینستا https://www.instagram.com/reel/xxxxx/"),
         ],
+        "children": [("حذف همگانی پیوی ها", "bulk_delete_pv")],
     },
     "premium_emoji": {
         "title": "ایموجی پرمیوم",
@@ -3969,6 +4005,32 @@ PANEL_CATEGORIES = {
             ("پاک کردن لیست دشمن", "پاک کردن لیست دشمن"),
         ],
         "parent": "friend_enemy",
+    },
+    "bulk_delete_pv": {
+        "title": "حذف همگانی پیوی ها",
+        "toggles": [],
+        "actions": [],
+        "children": [
+            ("حذف دوطرفه", "bulk_delete_pv_confirm_2way"),
+            ("حذف یکطرفه", "bulk_delete_pv_confirm_1way"),
+        ],
+        "parent": "tools",
+    },
+    "bulk_delete_pv_confirm_2way": {
+        "title": "⚠️ مطمئنی؟ همه‌ی پیوی‌ها برای هر دو طرف حذف می‌شن (برگشت‌ناپذیر)",
+        "toggles": [],
+        "actions": [
+            ("✅ بله، حذف کن", "حذف دوطرفه پیوی ها"),
+        ],
+        "parent": "bulk_delete_pv",
+    },
+    "bulk_delete_pv_confirm_1way": {
+        "title": "⚠️ مطمئنی؟ همه‌ی پیوی‌ها فقط از سمت خودت حذف می‌شن (برگشت‌ناپذیر)",
+        "toggles": [],
+        "actions": [
+            ("✅ بله، حذف کن", "حذف یکطرفه پیوی ها"),
+        ],
+        "parent": "bulk_delete_pv",
     },
     "meowie_settings": meowie_game.SETTINGS_PANEL_CATEGORY,
 }
