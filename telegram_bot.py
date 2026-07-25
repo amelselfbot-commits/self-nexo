@@ -2834,7 +2834,7 @@ def start_token_bot():
                 return _bot.reply_to(message, "⚠️ ابتدا در پنل وب ثبت‌نام کنید.", reply_markup=_main_inline_keyboard())
             stats = db.get_token_stats(account["id"])
             ref_count = db.get_referral_count(account["id"])
-            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 200)
+            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 50)
             _bot.reply_to(message,
                 f"{EM.EMOJI_DIAMONDS} <b>موجودی الماس</b>\n\n"
                 f"💰 فعلی: <b>{stats['balance']}</b>\n"
@@ -2855,7 +2855,7 @@ def start_token_bot():
                 return _bot.answer_callback_query(call.id, "⚠️ ابتدا در پنل وب ثبت‌نام کنید.", show_alert=True)
             stats = db.get_token_stats(account["id"])
             ref_count = db.get_referral_count(account["id"])
-            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 200)
+            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 50)
             _bot.answer_callback_query(call.id)
             _bot.send_message(call.message.chat.id,
                 f"{EM.EMOJI_DIAMONDS} <b>موجودی الماس</b>\n\n"
@@ -2911,7 +2911,7 @@ def start_token_bot():
                 return _bot.send_message(chat_id, "⚠️ ابتدا در پنل وب ثبت‌نام کنید.", reply_markup=_main_inline_keyboard())
             link = f"https://t.me/{BOT_USERNAME}?start=ref_{account['id']}"
             ref_count = db.get_referral_count(account["id"])
-            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 200)
+            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 50)
             referral_value = config.REFERRAL_TOKENS * token_price
             kwargs = {"reply_markup": _main_inline_keyboard(account)}
             if reply_to:
@@ -2929,13 +2929,12 @@ def start_token_bot():
     # ══════════════════════════════════════════════════════════════════════════
 
     # ── تعریف پلن‌ها ──────────────────────────────────────────────────────────
-    MONTHLY_TOMAN   = 90_000
     PLANS = {
-        "weekly":    {"fa": "هفتگی",    "days": 7,  "toman": MONTHLY_TOMAN // 4,  "diamonds": 100},
-        "monthly":   {"fa": "ماهانه",   "days": 30, "toman": MONTHLY_TOMAN,        "diamonds": 360},
-        "bimonthly": {"fa": "دو ماهه",  "days": 60, "toman": MONTHLY_TOMAN * 2,   "diamonds": 700},
+        "weekly":    {"fa": "هفتگی",    "days": 7,  "toman": 50_000,  "diamonds": 100},
+        "monthly":   {"fa": "ماهانه",   "days": 30, "toman": 170_000, "diamonds": 360},
+        "bimonthly": {"fa": "دو ماهه",  "days": 60, "toman": 300_000, "diamonds": 700},
     }
-    DIAMOND_RATE    = 250   # هر الماس = ۲۵۰ تومان (۱۰۰ الماس = ۲۵,۰۰۰ تومان)
+    DIAMOND_RATE    = 50    # هر الماس = ۵۰ تومان (۱۰۰ الماس = ۵,۰۰۰ تومان)
     DIAMOND_MIN_BUY = 100   # حداقل خرید الماس
 
     # وضعیت موقت کاربران برای خرید
@@ -4980,7 +4979,7 @@ def start_token_bot():
                 
                 db.add_tokens(account["id"], amount)
                 new_balance = db.get_token_balance(account["id"])
-                token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 200)
+                token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 50)
                 
                 tg_id = db.get_telegram_id_by_owner(account["id"])
                 if tg_id:

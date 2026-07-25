@@ -62,7 +62,7 @@ SESSION_HOURS = 2
 DAILY_TOKEN_GIFT = 10
 REFERRAL_TOKENS = 12
 WELCOME_TOKENS = 10
-TOKEN_PRICE_TOMAN = 200
+TOKEN_PRICE_TOMAN = 50
 
 # ─── اسپانسرها ───────────────────────────────────────────────────────────────
 SPONSORS = [
