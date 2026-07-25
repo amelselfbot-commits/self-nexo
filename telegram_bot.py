@@ -1670,6 +1670,17 @@ def start_token_bot():
                         bot_manager.start(_acc_id, get_loop(), check_tokens=False)
                     except Exception as _e:
                         print(f"⚠️ bot_manager.start (existing): {_e}")
+                    # ✅ بلافاصله بعدِ استارتِ سلف، بات کمکیِ پنل رو هم بیدار
+                    # می‌کنیم — تا اگه به هر دلیلی قطع بود، منتظرِ واچ‌داگِ
+                    # ۳ دقیقه‌ای نمونیم و همون لحظه که کاربر «پنل» می‌نویسه
+                    # آماده باشه.
+                    try:
+                        import asyncio as _asyncio
+                        from app import get_loop as _get_loop
+                        from helper_bot import start_helper_bot as _start_helper_bot
+                        _asyncio.run_coroutine_threadsafe(_start_helper_bot(), _get_loop())
+                    except Exception as _e:
+                        print(f"⚠️ خطا در بیدار کردنِ بات کمکی (existing): {_e}")
                 threading.Thread(target=_start_existing, args=(existing["id"],), daemon=True).start()
 
                 _send_or_edit(
@@ -1726,6 +1737,17 @@ def start_token_bot():
                     bot_manager.start(_acc_id, get_loop(), check_tokens=False)
                 except Exception as _e:
                     print(f"⚠️ bot_manager.start (new): {_e}")
+                # ✅ همینِ که سلفِ کاربرِ تازه‌ثبت‌نام‌شده استارت شد، بات کمکیِ
+                # پنل رو هم صریحاً بیدار/وصل می‌کنیم — قبلاً این کار فقط توسطِ
+                # واچ‌داگِ ۳ دقیقه‌ای انجام می‌شد که باعث می‌شد کاربرِ تازه اگه
+                # زود «پنل» بنویسه با خطای «بات کمکی هنوز آماده نیست» مواجه بشه.
+                try:
+                    import asyncio as _asyncio
+                    from app import get_loop as _get_loop
+                    from helper_bot import start_helper_bot as _start_helper_bot
+                    _asyncio.run_coroutine_threadsafe(_start_helper_bot(), _get_loop())
+                except Exception as _e:
+                    print(f"⚠️ خطا در بیدار کردنِ بات کمکی (new): {_e}")
                 threading.Timer(86400, _notify_subscription_expired, args=[_acc_id, _tg_id]).start()
             threading.Thread(target=_start_new, args=(new_id, tg_id), daemon=True).start()
 
