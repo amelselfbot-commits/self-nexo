@@ -1419,7 +1419,12 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
             return
 
         last_err = None
-        for attempt in range(3):
+        max_wait = 120  # حداکثر مجموع زمانی که صبر می‌کنیم (ثانیه)
+        interval = 2    # فاصله‌ی بین هر تلاش (ثانیه)
+        started = asyncio.get_event_loop().time()
+        attempt = 0
+        while True:
+            attempt += 1
             try:
                 results = await cl.inline_query(uname, "پنل")
                 if results:
@@ -1437,8 +1442,10 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
             except Exception as e:
                 last_err = str(e)
 
-            if attempt < 2:
-                await asyncio.sleep(10)
+            elapsed = asyncio.get_event_loop().time() - started
+            if elapsed >= max_wait:
+                break
+            await asyncio.sleep(interval)
 
         if last_err:
             await cl.send_message(event.chat_id, f"❗ خطا در باز کردن پنل: {last_err}")
