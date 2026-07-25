@@ -135,6 +135,7 @@ async def start_helper_bot():
             connection_retries=3,
             retry_delay=2,
             timeout=10,
+            flood_sleep_threshold=0,
         )
         try:
             await asyncio.wait_for(cl.start(bot_token=config.HELPER_BOT_TOKEN), timeout=25)

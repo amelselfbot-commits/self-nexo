@@ -340,6 +340,7 @@ class BotManager:
                     StringSession(session_data),
                     config.API_ID,
                     config.API_HASH,
+                    flood_sleep_threshold=0,
                 )
                 entry["client"] = cl
                 _register_handlers(cl, owner_id, entry)
@@ -1419,7 +1420,8 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
             return
 
         last_err = None
-        for attempt in range(3):
+        max_attempts = 8
+        for attempt in range(max_attempts):
             try:
                 results = await cl.inline_query(uname, "پنل")
                 if results:
@@ -1434,14 +1436,32 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
                     break
                 else:
                     last_err = "نتیجه‌ای از بات کمکی دریافت نشد."
+            except FloodWaitError as e:
+                # حساب‌های تازه (سشن‌های تازه‌ی تلگرام) گاهی موقع inline_query
+                # به یک بات ناآشنا با محدودیتِ ضدِ اسپمِ اکانتِ جدید مواجه
+                # می‌شن. با flood_sleep_threshold=0 این خطا دیگه به‌صورتِ
+                # نامرئی توسطِ Telethon بلعیده نمی‌شه و همین‌جا به ما می‌رسه؛
+                # به‌جای تسلیم شدن، همون مقدار (سقف‌دار) صبر می‌کنیم و خودمون
+                # دوباره تلاش می‌کنیم — یعنی سلف همچنان پیگیرِ باز کردنِ پنله.
+                last_err = f"FloodWait {e.seconds} ثانیه"
+                wait_s = min(e.seconds, 20)
+                await asyncio.sleep(wait_s)
+                continue
             except Exception as e:
                 last_err = str(e)
 
-            if attempt < 2:
-                await asyncio.sleep(1.5)
+            if attempt < max_attempts - 1:
+                # backoff فزاینده‌ی ملایم به‌جای فاصله‌ی ثابت، تا هم فشارِ
+                # کمتری به تلگرام وارد بشه هم شانسِ موفقیت در تلاش‌های بعدی
+                # (مثلاً بعد از این‌که کانکشن/کش سلف کامل بالا اومد) بیشتر شه.
+                await asyncio.sleep(min(1.5 * (attempt + 1), 8))
 
         if last_err:
-            await cl.send_message(event.chat_id, f"❗ خطا در باز کردن پنل: {last_err}")
+            await cl.send_message(
+                event.chat_id,
+                f"❗ بعد از {max_attempts} بار تلاش، پنل باز نشد ({last_err}).\n"
+                f"دوباره بنویس: پنل",
+            )
 
     # ─── دستورهای روشن/خاموش جدید پنل (قفل‌ها، ساعت پرمیوم، حالت‌های متن) ─────
     elif text in _EXTRA_TOGGLE_COMMANDS:
