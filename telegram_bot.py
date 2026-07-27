@@ -507,6 +507,9 @@ def start_token_bot():
         markup.add(
             types.InlineKeyboardButton(" راهنما", callback_data="guide_menu", style="success", icon_custom_emoji_id=str(EM.ID_GUIDE))
         )
+        miniapp_btn = _miniapp_button()
+        if miniapp_btn is not None:
+            markup.add(miniapp_btn)
         if account is not None:
             try:
                 is_logged_in = db.get_setting(account["id"], "logged_in", "0") == "1"
@@ -2198,6 +2201,21 @@ def start_token_bot():
     # ══════════════════════════════════════════════════════════════════════════
     # 🤖 مدیریت سلف — منوی مرکزی
     # ══════════════════════════════════════════════════════════════════════════
+    def _miniapp_button():
+        """دکمه‌ی «مینی‌اپ» فقط وقتی ساخته می‌شه که SITE_URL روی https تنظیم
+        شده باشه (تلگرام WebApp فقط با https کار می‌کنه)."""
+        site = getattr(config, "SITE_URL", "") or ""
+        if not site.startswith("https://"):
+            return None
+        try:
+            return types.InlineKeyboardButton(
+                "🖥 پنل کامل مدیریت سلف (مینی‌اپ)",
+                web_app=types.WebAppInfo(url=f"{site.rstrip('/')}/miniapp"),
+                style="success"
+            )
+        except Exception:
+            return None
+
     def _self_management_keyboard(account_id):
         """کیبورد منوی مدیریت سلف — وضعیت دینامیک"""
         from bot import bot_manager
@@ -2222,6 +2240,11 @@ def start_token_bot():
                 markup.add(types.InlineKeyboardButton(
                     " روشن کردن سلف", callback_data="self_mgmt_start", style="success",
                     icon_custom_emoji_id=str(EM.ID_SELF_ON)))
+
+            miniapp_btn = _miniapp_button()
+            if miniapp_btn:
+                markup.add(miniapp_btn)
+
             # حذف سلف همیشه نمایش داده می‌شود
             markup.add(types.InlineKeyboardButton(
                 " حذف سلف از اکانت تلگرام", callback_data="remove_self_ask", style="danger",
