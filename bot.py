@@ -1388,15 +1388,27 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
             await cl.send_message(event.chat_id, "❗ پنل دکمه‌ای فعال نیست (بات کمکی تنظیم نشده).")
             return
 
-        # ─── ارسالِ بنرِ پنل با عکسِ پروفایلِ خودِ کاربر وسطِ قاب ─────────────────
+        # ─── ساختِ بنرِ پنل (عکسِ پروفایل + آیدیِ کاربر) و آماده‌سازیِ مسیرش
+        # برایِ اینکه هلپربات همین عکس رو به‌عنوانِ خودِ پیامِ پنل (همراه با
+        # دکمه‌ها) بفرسته - دیگه به‌صورتِ پیامِ جدا ارسال نمی‌شه ─────────────────
         try:
             import tempfile as _tempfile
             avatar_path = await cl.download_profile_photo("me", file=_tempfile.mktemp(suffix=".jpg"))
+
+            _me = await cl.get_me()
+            _username = f"@{_me.username}" if getattr(_me, "username", None) else (_me.first_name or "")
+
             from panel_banner import build_panel_banner
-            banner_path = build_panel_banner(avatar_path) if avatar_path else build_panel_banner(None)
-            await cl.send_file(event.chat_id, banner_path)
+            banner_path = build_panel_banner(
+                avatar_path,
+                output_path=os.path.join(_tempfile.gettempdir(), f"panel_banner_{_me.id}.jpg"),
+                username=_username,
+            )
+
+            from panel_banner_cache import set_banner_path
+            set_banner_path(_me.id, banner_path)
         except Exception as _e:
-            print(f"⚠️ خطا در ساخت/ارسالِ بنرِ پنل: {_e}")
+            print(f"⚠️ خطا در ساختِ بنرِ پنل: {_e}")
 
         from helper_bot import get_helper_client, start_helper_bot, schedule_panel_timeout
 

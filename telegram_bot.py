@@ -507,6 +507,9 @@ def start_token_bot():
         markup.add(
             types.InlineKeyboardButton(" راهنما", callback_data="guide_menu", style="success", icon_custom_emoji_id=str(EM.ID_GUIDE))
         )
+        miniapp_btn = _miniapp_button()
+        if miniapp_btn is not None:
+            markup.add(miniapp_btn)
         if account is not None:
             try:
                 is_logged_in = db.get_setting(account["id"], "logged_in", "0") == "1"
@@ -564,6 +567,9 @@ def start_token_bot():
         )
         markup.add(
             types.InlineKeyboardButton(" قرعه‌کشی", callback_data="admin_lottery", style="success", icon_custom_emoji_id=str(EM.ID_BET))           # 🟢 سبز
+        )
+        markup.add(
+            types.InlineKeyboardButton(" تنظیم مشخصات خرید", callback_data="admin_purchase_settings", style="primary", icon_custom_emoji_id=str(EM.ID_SET_CARD)) # 🔵 آبی
         )
         markup.add(
             types.InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel", style="danger")               # 🔴 قرمز
@@ -2195,6 +2201,21 @@ def start_token_bot():
     # ══════════════════════════════════════════════════════════════════════════
     # 🤖 مدیریت سلف — منوی مرکزی
     # ══════════════════════════════════════════════════════════════════════════
+    def _miniapp_button():
+        """دکمه‌ی «مینی‌اپ» فقط وقتی ساخته می‌شه که SITE_URL روی https تنظیم
+        شده باشه (تلگرام WebApp فقط با https کار می‌کنه)."""
+        site = getattr(config, "SITE_URL", "") or ""
+        if not site.startswith("https://"):
+            return None
+        try:
+            return types.InlineKeyboardButton(
+                "🖥 پنل کامل مدیریت سلف (مینی‌اپ)",
+                web_app=types.WebAppInfo(url=f"{site.rstrip('/')}/miniapp"),
+                style="success"
+            )
+        except Exception:
+            return None
+
     def _self_management_keyboard(account_id):
         """کیبورد منوی مدیریت سلف — وضعیت دینامیک"""
         from bot import bot_manager
@@ -2219,6 +2240,11 @@ def start_token_bot():
                 markup.add(types.InlineKeyboardButton(
                     " روشن کردن سلف", callback_data="self_mgmt_start", style="success",
                     icon_custom_emoji_id=str(EM.ID_SELF_ON)))
+
+            miniapp_btn = _miniapp_button()
+            if miniapp_btn:
+                markup.add(miniapp_btn)
+
             # حذف سلف همیشه نمایش داده می‌شود
             markup.add(types.InlineKeyboardButton(
                 " حذف سلف از اکانت تلگرام", callback_data="remove_self_ask", style="danger",
@@ -2834,7 +2860,7 @@ def start_token_bot():
                 return _bot.reply_to(message, "⚠️ ابتدا در پنل وب ثبت‌نام کنید.", reply_markup=_main_inline_keyboard())
             stats = db.get_token_stats(account["id"])
             ref_count = db.get_referral_count(account["id"])
-            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 200)
+            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 50)
             _bot.reply_to(message,
                 f"{EM.EMOJI_DIAMONDS} <b>موجودی الماس</b>\n\n"
                 f"💰 فعلی: <b>{stats['balance']}</b>\n"
@@ -2855,7 +2881,7 @@ def start_token_bot():
                 return _bot.answer_callback_query(call.id, "⚠️ ابتدا در پنل وب ثبت‌نام کنید.", show_alert=True)
             stats = db.get_token_stats(account["id"])
             ref_count = db.get_referral_count(account["id"])
-            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 200)
+            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 50)
             _bot.answer_callback_query(call.id)
             _bot.send_message(call.message.chat.id,
                 f"{EM.EMOJI_DIAMONDS} <b>موجودی الماس</b>\n\n"
@@ -2911,7 +2937,7 @@ def start_token_bot():
                 return _bot.send_message(chat_id, "⚠️ ابتدا در پنل وب ثبت‌نام کنید.", reply_markup=_main_inline_keyboard())
             link = f"https://t.me/{BOT_USERNAME}?start=ref_{account['id']}"
             ref_count = db.get_referral_count(account["id"])
-            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 200)
+            token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 50)
             referral_value = config.REFERRAL_TOKENS * token_price
             kwargs = {"reply_markup": _main_inline_keyboard(account)}
             if reply_to:
@@ -2929,20 +2955,109 @@ def start_token_bot():
     # ══════════════════════════════════════════════════════════════════════════
 
     # ── تعریف پلن‌ها ──────────────────────────────────────────────────────────
-    MONTHLY_TOMAN   = 90_000
+    # نکته: با نرخِ ۵۰ تومان/الماس، پلنِ هفتگی دقیقاً هم‌ارزِ مبلغِ پرداختی
+    # الماس می‌گیره (۱۰۰۰ × ۵۰ = ۵۰,۰۰۰ تومان) و پلن‌های ماهانه/دوماهه یه
+    # پاداشِ اضافه هم دارن تا خریدِ پلنِ بزرگ‌تر به‌صرفه‌تر باشه.
+    # این مقادیر پیش‌فرض هستن؛ مالک می‌تونه از «تنظیم مشخصات خرید» توی پنلِ
+    # مدیریت، هر کدوم رو تغییر بده که با import_json.dumps توی دیتابیس
+    # (amel_global_settings) ذخیره و در راه‌اندازیِ بعدی هم لود می‌شه.
     PLANS = {
-        "weekly":    {"fa": "هفتگی",    "days": 7,  "toman": MONTHLY_TOMAN // 4,  "diamonds": 100},
-        "monthly":   {"fa": "ماهانه",   "days": 30, "toman": MONTHLY_TOMAN,        "diamonds": 360},
-        "bimonthly": {"fa": "دو ماهه",  "days": 60, "toman": MONTHLY_TOMAN * 2,   "diamonds": 700},
+        "weekly":    {"fa": "هفتگی",    "days": 7,  "toman": 50_000,  "diamonds": 1000},
+        "monthly":   {"fa": "ماهانه",   "days": 30, "toman": 170_000, "diamonds": 3800},
+        "bimonthly": {"fa": "دو ماهه",  "days": 60, "toman": 300_000, "diamonds": 7000},
     }
-    DIAMOND_RATE    = 250   # هر الماس = ۲۵۰ تومان (۱۰۰ الماس = ۲۵,۰۰۰ تومان)
+    DIAMOND_RATE    = 50    # هر الماس = ۵۰ تومان (۱۰۰ الماس = ۵,۰۰۰ تومان)
     DIAMOND_MIN_BUY = 100   # حداقل خرید الماس
+
+    def _load_purchase_settings():
+        """اورراید مقادیرِ PLANS و DIAMOND_RATE با آخرین چیزی که مالک از
+        پنلِ «تنظیم مشخصات خرید» ذخیره کرده (اگه چیزی ذخیره نشده باشه،
+        همون مقادیرِ پیش‌فرضِ بالا دست‌نخورده می‌مونن)."""
+        import json as _json
+        try:
+            raw = db.get_global_setting("purchase_plans", "")
+            if raw:
+                saved = _json.loads(raw)
+                for _key, _vals in saved.items():
+                    if _key in PLANS and isinstance(_vals, dict):
+                        PLANS[_key].update(_vals)
+        except Exception as e:
+            print(f"⚠️ خطا در لودِ purchase_plans: {e}")
+
+        try:
+            raw_rate = db.get_global_setting("diamond_rate", "")
+            if raw_rate:
+                return int(raw_rate)
+        except Exception as e:
+            print(f"⚠️ خطا در لودِ diamond_rate: {e}")
+        return DIAMOND_RATE
+
+    DIAMOND_RATE = _load_purchase_settings()
+
+    def _save_plans_setting():
+        import json as _json
+        try:
+            db.set_global_setting("purchase_plans", _json.dumps(PLANS, ensure_ascii=False))
+        except Exception as e:
+            print(f"⚠️ خطا در ذخیره‌ی purchase_plans: {e}")
+
+    def _save_diamond_rate_setting(rate):
+        try:
+            db.set_global_setting("diamond_rate", str(rate))
+        except Exception as e:
+            print(f"⚠️ خطا در ذخیره‌ی diamond_rate: {e}")
 
     # وضعیت موقت کاربران برای خرید
     _purchase_states = {}  # tg_id -> {step, data}
 
     def _get_card_number():
         return db.get_global_setting("card_number", "----")
+
+    def _finalize_sub_card_payment(chat_id, tg_id, account, plan_key, plan, final_toman, discount_code, discount_percent):
+        card = _get_card_number()
+        payment_id = db.create_payment(
+            account["id"], tg_id, "subscription",
+            plan=plan_key, toman_amount=final_toman,
+            discount_code=discount_code, discount_percent=discount_percent,
+            original_toman_amount=plan["toman"] if discount_code else None
+        )
+        _purchase_states[tg_id] = {"step": "waiting_receipt_sub", "payment_id": payment_id}
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="pur_sub_card", style="danger"))
+        discount_line = f"🎟 کد تخفیف: <b>{discount_code}</b> ({discount_percent}٪ تخفیف)\n" if discount_code else ""
+        _bot.send_message(
+            chat_id,
+            f"💳 <b>پرداخت اشتراک {plan['fa']}</b>\n\n"
+            f"{discount_line}"
+            f"💰 مبلغ قابل پرداخت: <b>{final_toman:,} تومان</b>\n"
+            f"💳 شماره کارت: <code>{card}</code>\n"
+            f"👤 به نام: <b>غفاری</b>\n\n"
+            f"بعد از واریز، تصویر رسید را ارسال کنید 👇",
+            reply_markup=markup
+        )
+
+    def _finalize_diamond_card_payment(chat_id, tg_id, account, amount, final_toman, discount_code, discount_percent):
+        card = _get_card_number()
+        payment_id = db.create_payment(
+            account["id"], tg_id, "diamond",
+            diamond_amount=amount, toman_amount=final_toman,
+            discount_code=discount_code, discount_percent=discount_percent,
+            original_toman_amount=(amount * DIAMOND_RATE) if discount_code else None
+        )
+        _purchase_states[tg_id] = {"step": "waiting_receipt_diamond", "payment_id": payment_id}
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("❌ لغو", callback_data="pur_back", style="danger", icon_custom_emoji_id="5832353674281620438"))
+        discount_line = f"🎟 کد تخفیف: <b>{discount_code}</b> ({discount_percent}٪ تخفیف)\n" if discount_code else ""
+        _bot.send_message(
+            chat_id,
+            f"🛍 <b>خرید {amount} الماس</b>\n\n"
+            f"{discount_line}"
+            f"💰 مبلغ قابل پرداخت: <b>{final_toman:,} تومان</b>\n"
+            f"💳 شماره کارت: <code>{card}</code>\n"
+            f"👤 به نام: <b>غفاری</b>\n\n"
+            f"بعد از واریز، تصویر رسید را ارسال کنید 👇",
+            reply_markup=markup
+        )
 
     def _purchase_main_keyboard():
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -2972,6 +3087,70 @@ def start_token_bot():
         # 🔴 دکمه بازگشت با رنگ danger (قرمز)
         markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="pur_back", style="danger"))
         return markup
+
+    # ── تنظیم مشخصات خرید (پنل مالک) ─────────────────────────────────────────
+    def _purchase_settings_text():
+        lines = ["🛠 <b>تنظیم مشخصات خرید</b>\n"]
+        for p in PLANS.values():
+            lines.append(f"• {p['fa']}: {p['toman']:,} تومان / {p['diamonds']:,} الماس")
+        lines.append(f"\n💵 نرخ فعلی هر الماس: <b>{DIAMOND_RATE} تومان</b>")
+        lines.append("\nیکی از گزینه‌های زیر را انتخاب کنید:")
+        return "\n".join(lines)
+
+    def _purchase_settings_keyboard():
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for key, p in PLANS.items():
+            markup.add(types.InlineKeyboardButton(f"✏️ ویرایش پلن {p['fa']}", callback_data=f"aps_edit_{key}", style="primary"))
+        markup.add(types.InlineKeyboardButton("💵 تغییر نرخ هر الماس", callback_data="aps_rate", style="primary"))
+        markup.add(types.InlineKeyboardButton("🎟 کدهای تخفیف", callback_data="admin_discount_codes", style="success"))
+        markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel", style="danger"))
+        return markup
+
+    # ── کدهای تخفیف (پنل مالک) ───────────────────────────────────────────────
+    def _discount_codes_text():
+        codes = db.list_discount_codes()
+        if not codes:
+            return "🎟 <b>کدهای تخفیف</b>\n\nهنوز هیچ کدی ساخته نشده."
+        lines = ["🎟 <b>کدهای تخفیف</b>\n"]
+        for c in codes:
+            status = "🟢 فعال" if c.get("active") else "🔴 غیرفعال"
+            max_uses = c.get("max_uses") or 0
+            used = c.get("used_count") or 0
+            uses_txt = f"{used}/{max_uses}" if max_uses else f"{used}/∞"
+            exp = c.get("expires_at")
+            exp_txt = exp.strftime("%Y-%m-%d") if exp else "بدون انقضا"
+            lines.append(f"• <code>{c['code']}</code> — {c['percent']}٪ — استفاده: {uses_txt} — انقضا: {exp_txt} — {status}")
+        return "\n".join(lines)
+
+    def _discount_codes_keyboard():
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        codes = db.list_discount_codes()
+        for c in codes:
+            markup.add(types.InlineKeyboardButton(f"🗑 حذف {c['code']}", callback_data=f"adc_del_{c['code']}", style="danger"))
+        markup.add(types.InlineKeyboardButton("➕ ساخت کد جدید", callback_data="adc_new", style="success"))
+        markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="admin_purchase_settings", style="primary"))
+        return markup
+
+    def _validate_discount_code(code: str, base_toman: int):
+        """
+        بررسیِ کدِ تخفیف. خروجی: (ok: bool, error_or_none: str, discounted_toman: int, percent: int)
+        """
+        import datetime as _dt
+        info = db.get_discount_code(code)
+        if not info:
+            return False, "❌ کد تخفیف پیدا نشد.", base_toman, 0
+        if not info.get("active", True):
+            return False, "❌ این کد غیرفعال شده.", base_toman, 0
+        max_uses = info.get("max_uses") or 0
+        used = info.get("used_count") or 0
+        if max_uses and used >= max_uses:
+            return False, "❌ ظرفیتِ استفاده از این کد تمام شده.", base_toman, 0
+        exp = info.get("expires_at")
+        if exp and exp < _dt.datetime.now():
+            return False, "❌ این کد منقضی شده.", base_toman, 0
+        percent = int(info["percent"])
+        discounted = int(base_toman * (100 - percent) / 100)
+        return True, None, discounted, percent
 
     @_bot.message_handler(func=lambda m: m.text and m.text.strip() in ("🛒 خرید الماس", "🛒 خرید"), chat_types=['private'])
     def cmd_buy(message):
@@ -3084,21 +3263,39 @@ def start_token_bot():
                 plan = PLANS.get(plan_key)
                 if not plan:
                     return _bot.answer_callback_query(call.id, "❌ پلن نامعتبر", show_alert=True)
-                card = _get_card_number()
-                payment_id = db.create_payment(
-                    account["id"], tg_id, "subscription",
-                    plan=plan_key, toman_amount=plan["toman"]
+                markup = types.InlineKeyboardMarkup(row_width=2)
+                markup.add(
+                    types.InlineKeyboardButton("✅ بله دارم", callback_data=f"pur_disc_yes_sub_{plan_key}", style="success"),
+                    types.InlineKeyboardButton("❌ ندارم", callback_data=f"pur_disc_no_sub_{plan_key}", style="danger"),
                 )
-                _purchase_states[tg_id] = {"step": "waiting_receipt_sub", "payment_id": payment_id}
-                markup = types.InlineKeyboardMarkup()
-                # 🔴 دکمه بازگشت با رنگ danger (قرمز)
                 markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="pur_sub_card", style="danger"))
                 _bot.edit_message_text(
                     f"💳 <b>پرداخت اشتراک {plan['fa']}</b>\n\n"
-                    f"💰 مبلغ: <b>{plan['toman']:,} تومان</b>\n"
-                    f"💳 شماره کارت: <code>{card}</code>\n"
-                    f"👤 به نام: <b>غفاری</b>\n\n"
-                    f"بعد از واریز، تصویر رسید را ارسال کنید 👇",
+                    f"💰 مبلغ: <b>{plan['toman']:,} تومان</b>\n\n"
+                    f"🎟 کد تخفیف دارید؟",
+                    chat_id=call.message.chat.id, message_id=call.message.message_id,
+                    reply_markup=markup
+                )
+                _bot.answer_callback_query(call.id)
+
+            elif data.startswith("pur_disc_no_sub_"):
+                plan_key = data[len("pur_disc_no_sub_"):]
+                plan = PLANS.get(plan_key)
+                if not plan:
+                    return _bot.answer_callback_query(call.id, "❌ پلن نامعتبر", show_alert=True)
+                _purchase_states.pop(tg_id, None)
+                _finalize_sub_card_payment(call.message.chat.id, tg_id, account, plan_key, plan, plan["toman"], None, None)
+                _bot.answer_callback_query(call.id)
+
+            elif data.startswith("pur_disc_yes_sub_"):
+                plan_key = data[len("pur_disc_yes_sub_"):]
+                if plan_key not in PLANS:
+                    return _bot.answer_callback_query(call.id, "❌ پلن نامعتبر", show_alert=True)
+                _purchase_states[tg_id] = {"step": "waiting_discount_code", "purchase_type": "sub", "plan_key": plan_key}
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("❌ انصراف", callback_data=f"pur_disc_no_sub_{plan_key}", style="danger"))
+                _bot.edit_message_text(
+                    "🎟 کدِ تخفیف رو بنویس:",
                     chat_id=call.message.chat.id, message_id=call.message.message_id,
                     reply_markup=markup
                 )
@@ -3117,6 +3314,32 @@ def start_token_bot():
                     f"📌 حداقل خرید: <b>{DIAMOND_MIN_BUY} الماس</b>\n\n"
                     f"چه تعداد الماس می‌خوای؟ (عدد بنویس)\n"
                     f"مثال: <code>200</code>",
+                    chat_id=call.message.chat.id, message_id=call.message.message_id,
+                    reply_markup=markup
+                )
+                _bot.answer_callback_query(call.id)
+
+            elif data == "pur_disc_no_dia":
+                st = _purchase_states.get(tg_id, {})
+                if st.get("step") != "diamond_discount_wait":
+                    return _bot.answer_callback_query(call.id, "❌ درخواست منقضی شده، دوباره تلاش کن", show_alert=True)
+                amount, base_toman = st["amount"], st["toman"]
+                _purchase_states.pop(tg_id, None)
+                _finalize_diamond_card_payment(call.message.chat.id, tg_id, account, amount, base_toman, None, None)
+                _bot.answer_callback_query(call.id)
+
+            elif data == "pur_disc_yes_dia":
+                st = _purchase_states.get(tg_id, {})
+                if st.get("step") != "diamond_discount_wait":
+                    return _bot.answer_callback_query(call.id, "❌ درخواست منقضی شده، دوباره تلاش کن", show_alert=True)
+                _purchase_states[tg_id] = {
+                    "step": "waiting_discount_code", "purchase_type": "diamond",
+                    "amount": st["amount"], "toman": st["toman"]
+                }
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("❌ انصراف", callback_data="pur_disc_no_dia", style="danger"))
+                _bot.edit_message_text(
+                    "🎟 کدِ تخفیف رو بنویس:",
                     chat_id=call.message.chat.id, message_id=call.message.message_id,
                     reply_markup=markup
                 )
@@ -3221,23 +3444,50 @@ def start_token_bot():
                 if amount < DIAMOND_MIN_BUY:
                     return _bot.reply_to(message, f"❌ حداقل {DIAMOND_MIN_BUY} الماس باید خرید.")
                 toman = amount * DIAMOND_RATE
-                card = _get_card_number()
-                payment_id = db.create_payment(
-                    account["id"], tg_id, "diamond",
-                    diamond_amount=amount, toman_amount=toman
+                _purchase_states[tg_id] = {"step": "diamond_discount_wait", "amount": amount, "toman": toman}
+                markup = types.InlineKeyboardMarkup(row_width=2)
+                markup.add(
+                    types.InlineKeyboardButton("✅ بله دارم", callback_data="pur_disc_yes_dia", style="success"),
+                    types.InlineKeyboardButton("❌ ندارم", callback_data="pur_disc_no_dia", style="danger"),
                 )
-                _purchase_states[tg_id] = {"step": "waiting_receipt_diamond", "payment_id": payment_id}
-                markup = types.InlineKeyboardMarkup()
-                # 🔴 دکمه لغو با رنگ danger (قرمز)
-                markup.add(types.InlineKeyboardButton("❌ لغو", callback_data="pur_back", style="danger", icon_custom_emoji_id="5832353674281620438"))
-                _bot.reply_to(message,
+                _bot.reply_to(
+                    message,
                     f"🛍 <b>خرید {amount} الماس</b>\n\n"
-                    f"💰 مبلغ: <b>{toman:,} تومان</b>\n"
-                    f"💳 شماره کارت: <code>{card}</code>\n"
-                    f"👤 به نام: <b>غفاری</b>\n\n"
-                    f"بعد از واریز، تصویر رسید را ارسال کنید 👇",
+                    f"💰 مبلغ: <b>{toman:,} تومان</b>\n\n"
+                    f"🎟 کد تخفیف دارید؟",
                     reply_markup=markup
                 )
+
+            # ── کاربر کدِ تخفیف رو نوشت ───────────────────────────────────
+            elif step == "waiting_discount_code":
+                code = (message.text or "").strip()
+                if not code:
+                    return _bot.reply_to(message, "❌ لطفاً کدِ تخفیف رو بنویس.")
+                ptype = state.get("purchase_type")
+                if ptype == "sub":
+                    plan_key = state["plan_key"]
+                    plan = PLANS.get(plan_key)
+                    if not plan:
+                        _purchase_states.pop(tg_id, None)
+                        return _bot.reply_to(message, "❌ پلن نامعتبر شد، از ابتدا شروع کن.")
+                    base_toman = plan["toman"]
+                else:
+                    base_toman = state["toman"]
+
+                ok, err, discounted, percent = _validate_discount_code(code, base_toman)
+                if not ok:
+                    markup = types.InlineKeyboardMarkup()
+                    cancel_cb = f"pur_disc_no_sub_{state['plan_key']}" if ptype == "sub" else "pur_disc_no_dia"
+                    markup.add(types.InlineKeyboardButton("🔙 ادامه بدون تخفیف", callback_data=cancel_cb, style="danger"))
+                    return _bot.reply_to(message, err, reply_markup=markup)
+
+                db.increment_discount_code_usage(code)
+                code_upper = code.strip().upper()
+                _purchase_states.pop(tg_id, None)
+                if ptype == "sub":
+                    _finalize_sub_card_payment(message.chat.id, tg_id, account, plan_key, plan, discounted, code_upper, percent)
+                else:
+                    _finalize_diamond_card_payment(message.chat.id, tg_id, account, state["amount"], discounted, code_upper, percent)
 
             # ── کاربر رسید فرستاد ────────────────────────────────────────
             elif step in ("waiting_receipt_sub", "waiting_receipt_diamond"):
@@ -3266,6 +3516,12 @@ def start_token_bot():
                     desc = f"اشتراک {plan.get('fa', '')} — {payment.get('toman_amount', 0):,} تومان"
                 else:
                     desc = f"خرید {payment.get('diamond_amount', 0)} الماس — {payment.get('toman_amount', 0):,} تومان"
+
+                if payment.get("discount_code"):
+                    desc += (
+                        f"\n🎟 کد تخفیف: {payment['discount_code']} ({payment.get('discount_percent', 0)}٪)"
+                        f" — قیمتِ اصلی: {payment.get('original_toman_amount', 0):,} تومان"
+                    )
 
                 admin_text = (
                     f"🧾 <b>رسید جدید</b>\n\n"
@@ -3411,7 +3667,7 @@ def start_token_bot():
             state_data["state"] = "lottery_awaiting_confirm"
             return _lottery_confirm_text(d), _lottery_confirm_markup()
 
-    @_bot.callback_query_handler(func=lambda call: call.data.startswith("admin_") or call.data.startswith("rmch_") or call.data.startswith("wcwin_") or call.data.startswith("wc_") or call.data == "addch_prompt" or call.data == "add_mission_prompt" or call.data.startswith("del_mission_") or call.data in ("guide_type_media", "guide_type_text") or call.data.startswith("admin_perm_") or call.data.startswith("lottery_"))
+    @_bot.callback_query_handler(func=lambda call: call.data.startswith("admin_") or call.data.startswith("rmch_") or call.data.startswith("wcwin_") or call.data.startswith("wc_") or call.data == "addch_prompt" or call.data == "add_mission_prompt" or call.data.startswith("del_mission_") or call.data in ("guide_type_media", "guide_type_text") or call.data.startswith("admin_perm_") or call.data.startswith("lottery_") or call.data.startswith("aps_") or call.data.startswith("adc_"))
     def callback_admin(call):
         uid = call.from_user.id
         data = call.data
@@ -3443,6 +3699,111 @@ def start_token_bot():
                 _bot.answer_callback_query(call.id)
                 return
             
+            elif data == "admin_purchase_settings":
+                _bot.edit_message_text(
+                    _purchase_settings_text(),
+                    chat_id=call.message.chat.id, message_id=call.message.message_id,
+                    reply_markup=_purchase_settings_keyboard()
+                )
+                _bot.answer_callback_query(call.id)
+                return
+
+            elif data.startswith("aps_edit_"):
+                key = data[len("aps_edit_"):]
+                plan = PLANS.get(key)
+                if not plan:
+                    return _bot.answer_callback_query(call.id, "❌ پلن نامعتبر", show_alert=True)
+                markup = types.InlineKeyboardMarkup(row_width=1)
+                markup.add(types.InlineKeyboardButton("✏️ تغییر قیمت (تومان)", callback_data=f"aps_setprice_{key}", style="primary"))
+                markup.add(types.InlineKeyboardButton("💎 تغییر تعداد الماس", callback_data=f"aps_setdiamond_{key}", style="success"))
+                markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="admin_purchase_settings", style="danger"))
+                _bot.edit_message_text(
+                    f"✏️ <b>ویرایش پلن {plan['fa']}</b>\n\n"
+                    f"⏳ مدت: {plan['days']} روز\n"
+                    f"💰 قیمت فعلی: {plan['toman']:,} تومان\n"
+                    f"💎 الماسِ فعلی: {plan['diamonds']:,}\n\n"
+                    f"چه چیزی رو می‌خوای تغییر بدی؟",
+                    chat_id=call.message.chat.id, message_id=call.message.message_id,
+                    reply_markup=markup
+                )
+                _bot.answer_callback_query(call.id)
+                return
+
+            elif data.startswith("aps_setprice_"):
+                key = data[len("aps_setprice_"):]
+                if key not in PLANS:
+                    return _bot.answer_callback_query(call.id, "❌ پلن نامعتبر", show_alert=True)
+                _owner_states[uid] = {"state": "aps_price", "data": {"key": key}}
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("❌ لغو", callback_data=f"aps_edit_{key}", style="danger"))
+                _bot.edit_message_text(
+                    f"💰 قیمتِ جدیدِ پلنِ {PLANS[key]['fa']} رو به تومان بنویس (فقط عدد):\nمثال: <code>75000</code>",
+                    chat_id=call.message.chat.id, message_id=call.message.message_id,
+                    reply_markup=markup
+                )
+                _bot.answer_callback_query(call.id)
+                return
+
+            elif data.startswith("aps_setdiamond_"):
+                key = data[len("aps_setdiamond_"):]
+                if key not in PLANS:
+                    return _bot.answer_callback_query(call.id, "❌ پلن نامعتبر", show_alert=True)
+                _owner_states[uid] = {"state": "aps_diamond", "data": {"key": key}}
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("❌ لغو", callback_data=f"aps_edit_{key}", style="danger"))
+                _bot.edit_message_text(
+                    f"💎 تعدادِ جدیدِ الماسِ پلنِ {PLANS[key]['fa']} رو بنویس (فقط عدد):\nمثال: <code>1200</code>",
+                    chat_id=call.message.chat.id, message_id=call.message.message_id,
+                    reply_markup=markup
+                )
+                _bot.answer_callback_query(call.id)
+                return
+
+            elif data == "aps_rate":
+                _owner_states[uid] = {"state": "aps_rate"}
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("❌ لغو", callback_data="admin_purchase_settings", style="danger"))
+                _bot.edit_message_text(
+                    f"💵 نرخِ جدیدِ هر الماس رو به تومان بنویس (فقط عدد):\nنرخِ فعلی: {DIAMOND_RATE} تومان\nمثال: <code>60</code>",
+                    chat_id=call.message.chat.id, message_id=call.message.message_id,
+                    reply_markup=markup
+                )
+                _bot.answer_callback_query(call.id)
+                return
+
+            elif data == "admin_discount_codes":
+                _bot.edit_message_text(
+                    _discount_codes_text(),
+                    chat_id=call.message.chat.id, message_id=call.message.message_id,
+                    reply_markup=_discount_codes_keyboard()
+                )
+                _bot.answer_callback_query(call.id)
+                return
+
+            elif data == "adc_new":
+                _owner_states[uid] = {"state": "adc_code", "data": {}}
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("❌ لغو", callback_data="admin_discount_codes", style="danger"))
+                _bot.edit_message_text(
+                    "🎟 <b>ساختِ کدِ تخفیفِ جدید</b>\n\n"
+                    "متنِ کد رو بنویس (فقط حروف انگلیسی/عدد، بدون فاصله):\nمثال: <code>OFF20</code>",
+                    chat_id=call.message.chat.id, message_id=call.message.message_id,
+                    reply_markup=markup
+                )
+                _bot.answer_callback_query(call.id)
+                return
+
+            elif data.startswith("adc_del_"):
+                code = data[len("adc_del_"):]
+                db.delete_discount_code(code)
+                _bot.answer_callback_query(call.id, f"🗑 کدِ {code} حذف شد", show_alert=True)
+                _bot.edit_message_text(
+                    _discount_codes_text(),
+                    chat_id=call.message.chat.id, message_id=call.message.message_id,
+                    reply_markup=_discount_codes_keyboard()
+                )
+                return
+
             elif data == "admin_channels":
                 channels = db.get_forced_channels()
                 markup = types.InlineKeyboardMarkup(row_width=1)
@@ -4737,6 +5098,135 @@ def start_token_bot():
             state = state_data["state"]
             text = (message.text or "").strip()
 
+            # ── تنظیم مشخصات خرید: تغییر قیمتِ یک پلن ───────────────────────────
+            if state == "aps_price":
+                key = state_data["data"]["key"]
+                try:
+                    new_price = int(text.replace(",", "").replace("،", ""))
+                    if new_price <= 0:
+                        raise ValueError
+                except ValueError:
+                    return _bot.reply_to(message, "❌ لطفاً یک عدد صحیح و مثبت وارد کنید (فقط تومان).")
+                _owner_states.pop(message.from_user.id, None)
+                PLANS[key]["toman"] = new_price
+                _save_plans_setting()
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("🔙 بازگشت به تنظیمات خرید", callback_data="admin_purchase_settings", style="primary"))
+                _bot.reply_to(message, f"✅ قیمتِ پلنِ {PLANS[key]['fa']} به {new_price:,} تومان تغییر کرد.", reply_markup=markup)
+                return
+
+            # ── تنظیم مشخصات خرید: تغییر تعدادِ الماسِ یک پلن ───────────────────
+            if state == "aps_diamond":
+                key = state_data["data"]["key"]
+                try:
+                    new_diamonds = int(text.replace(",", "").replace("،", ""))
+                    if new_diamonds <= 0:
+                        raise ValueError
+                except ValueError:
+                    return _bot.reply_to(message, "❌ لطفاً یک عدد صحیح و مثبت وارد کنید.")
+                _owner_states.pop(message.from_user.id, None)
+                PLANS[key]["diamonds"] = new_diamonds
+                _save_plans_setting()
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("🔙 بازگشت به تنظیمات خرید", callback_data="admin_purchase_settings", style="primary"))
+                _bot.reply_to(message, f"✅ تعدادِ الماسِ پلنِ {PLANS[key]['fa']} به {new_diamonds:,} تغییر کرد.", reply_markup=markup)
+                return
+
+            # ── تنظیم مشخصات خرید: تغییر نرخِ هر الماس ──────────────────────────
+            if state == "aps_rate":
+                try:
+                    new_rate = int(text.replace(",", "").replace("،", ""))
+                    if new_rate <= 0:
+                        raise ValueError
+                except ValueError:
+                    return _bot.reply_to(message, "❌ لطفاً یک عدد صحیح و مثبت وارد کنید (تومان).")
+                _owner_states.pop(message.from_user.id, None)
+                nonlocal DIAMOND_RATE
+                DIAMOND_RATE = new_rate
+                _save_diamond_rate_setting(new_rate)
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("🔙 بازگشت به تنظیمات خرید", callback_data="admin_purchase_settings", style="primary"))
+                _bot.reply_to(message, f"✅ نرخِ هر الماس به {new_rate:,} تومان تغییر کرد.", reply_markup=markup)
+                return
+
+            # ── ساختِ کدِ تخفیف: مرحله ۱ (متنِ کد) ───────────────────────────────
+            if state == "adc_code":
+                code = text.upper().replace(" ", "")
+                if not code or not code.replace("_", "").isalnum() or not code.isascii():
+                    return _bot.reply_to(message, "❌ کد باید فقط شاملِ حروف/عددِ انگلیسی باشه. دوباره بنویس:")
+                _owner_states[message.from_user.id] = {"state": "adc_percent", "data": {"code": code}}
+                _bot.reply_to(message, f"✅ کد: <code>{code}</code>\n\nحالا درصدِ تخفیف رو بنویس (بین ۱ تا ۹۹):\nمثال: <code>20</code>")
+                return
+
+            # ── ساختِ کدِ تخفیف: مرحله ۲ (درصد) ──────────────────────────────────
+            if state == "adc_percent":
+                try:
+                    percent = int(text)
+                    if not (1 <= percent <= 99):
+                        raise ValueError
+                except ValueError:
+                    return _bot.reply_to(message, "❌ درصد باید عددی بین ۱ تا ۹۹ باشه. دوباره بنویس:")
+                state_data["data"]["percent"] = percent
+                _owner_states[message.from_user.id] = {"state": "adc_maxuses", "data": state_data["data"]}
+                _bot.reply_to(
+                    message,
+                    f"✅ درصدِ تخفیف: {percent}٪\n\n"
+                    f"حداکثر تعدادِ دفعاتِ استفاده از این کد چقدر باشه؟\n"
+                    f"برای نامحدود عدد <code>0</code> رو بنویس.\nمثال: <code>50</code>"
+                )
+                return
+
+            # ── ساختِ کدِ تخفیف: مرحله ۳ (سقفِ استفاده) ──────────────────────────
+            if state == "adc_maxuses":
+                try:
+                    max_uses = int(text)
+                    if max_uses < 0:
+                        raise ValueError
+                except ValueError:
+                    return _bot.reply_to(message, "❌ لطفاً یک عددِ صحیحِ ۰ یا بیشتر بنویس:")
+                state_data["data"]["max_uses"] = max_uses
+                _owner_states[message.from_user.id] = {"state": "adc_expiry", "data": state_data["data"]}
+                _bot.reply_to(
+                    message,
+                    "✅ ثبت شد.\n\n"
+                    "این کد چند روز اعتبار داشته باشه؟\n"
+                    "برای بدونِ انقضا عدد <code>0</code> رو بنویس.\nمثال: <code>7</code>"
+                )
+                return
+
+            # ── ساختِ کدِ تخفیف: مرحله ۴ (روزهای اعتبار) و ثبتِ نهایی ────────────
+            if state == "adc_expiry":
+                try:
+                    days = int(text)
+                    if days < 0:
+                        raise ValueError
+                except ValueError:
+                    return _bot.reply_to(message, "❌ لطفاً یک عددِ صحیحِ ۰ یا بیشتر بنویس:")
+                data = state_data["data"]
+                _owner_states.pop(message.from_user.id, None)
+                expires_at = None
+                if days > 0:
+                    import datetime as _dt
+                    expires_at = _dt.datetime.now() + _dt.timedelta(days=days)
+                ok = db.create_discount_code(data["code"], data["percent"], data["max_uses"], expires_at)
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("🔙 بازگشت به کدهای تخفیف", callback_data="admin_discount_codes", style="primary"))
+                if ok:
+                    exp_txt = expires_at.strftime("%Y-%m-%d") if expires_at else "بدون انقضا"
+                    uses_txt = data["max_uses"] if data["max_uses"] else "نامحدود"
+                    _bot.reply_to(
+                        message,
+                        f"✅ <b>کدِ تخفیف ساخته شد!</b>\n\n"
+                        f"🎟 کد: <code>{data['code']}</code>\n"
+                        f"💯 درصد: {data['percent']}٪\n"
+                        f"🔢 سقفِ استفاده: {uses_txt}\n"
+                        f"📅 انقضا: {exp_txt}",
+                        reply_markup=markup
+                    )
+                else:
+                    _bot.reply_to(message, "❌ خطا در ساختِ کد. دوباره تلاش کنید.", reply_markup=markup)
+                return
+
             # ── مدیریت کاربران: جستجو با یوزرنیم یا آیدی عددی تلگرام ────────────
             if state == "manage_user_lookup":
                 _owner_states.pop(message.from_user.id, None)
@@ -4980,7 +5470,7 @@ def start_token_bot():
                 
                 db.add_tokens(account["id"], amount)
                 new_balance = db.get_token_balance(account["id"])
-                token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 200)
+                token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 50)
                 
                 tg_id = db.get_telegram_id_by_owner(account["id"])
                 if tg_id:

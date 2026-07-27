@@ -64,6 +64,11 @@ from database_supabase import (
     update_payment as supa_update_payment,
     get_payment as supa_get_payment,
     get_pending_payments as supa_get_pending_payments,
+    create_discount_code as supa_create_discount_code,
+    get_discount_code as supa_get_discount_code,
+    list_discount_codes as supa_list_discount_codes,
+    delete_discount_code as supa_delete_discount_code,
+    increment_discount_code_usage as supa_increment_discount_code_usage,
     SETTING_DEFAULTS,
     _hash_pw,
 )
@@ -300,14 +305,28 @@ def is_subscribed(owner_id):
     return supa_is_subscribed(owner_id)
 def transfer_subscription(from_owner_id, to_owner_id):
     return supa_transfer_subscription(from_owner_id, to_owner_id)
-def create_payment(owner_id, tg_id, ptype, plan=None, diamond_amount=None, toman_amount=None):
-    return supa_create_payment(owner_id, tg_id, ptype, plan, diamond_amount, toman_amount)
+def create_payment(owner_id, tg_id, ptype, plan=None, diamond_amount=None, toman_amount=None,
+                    discount_code=None, discount_percent=None, original_toman_amount=None):
+    return supa_create_payment(owner_id, tg_id, ptype, plan, diamond_amount, toman_amount,
+                                discount_code, discount_percent, original_toman_amount)
 def update_payment(payment_id, **kwargs):
     return supa_update_payment(payment_id, **kwargs)
 def get_payment(payment_id):
     return supa_get_payment(payment_id)
 def get_pending_payments():
     return supa_get_pending_payments()
+
+# ─── ✅ کدهای تخفیف ────────────────────────────────────────────────────────────
+def create_discount_code(code: str, percent: int, max_uses: int = 0, expires_at=None) -> bool:
+    return supa_create_discount_code(code, percent, max_uses, expires_at)
+def get_discount_code(code: str):
+    return supa_get_discount_code(code)
+def list_discount_codes() -> list:
+    return supa_list_discount_codes()
+def delete_discount_code(code: str) -> bool:
+    return supa_delete_discount_code(code)
+def increment_discount_code_usage(code: str):
+    return supa_increment_discount_code_usage(code)
 
 # ─── صادرات ────────────────────────────────────────────────────────────────────
 __all__ = [

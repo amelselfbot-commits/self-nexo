@@ -290,14 +290,29 @@ async def start_helper_bot():
 
         buttons = _menu_buttons(owner_tg_id)
 
-        # نکته: قبلاً اینجا عکسِ پروفایلِ سلف دانلود و دوباره آپلود می‌شد که
-        # خودش دو تا رفت‌وبرگشتِ شبکه‌ایِ اضافه بود و می‌تونست باعثِ رد شدن
-        # از سقفِ زمانیِ پاسخ‌گوییِ اینلاین‌کوئریِ تلگرام بشه (و همون خطای
-        # «did not answer to the callback query in time» رو رقم بزنه).
-        # برای اطمینان از باز شدنِ همیشگیِ پنل، این مرحله کلاً حذف شده و
-        # پنل به‌صورتِ متنیِ ساده (بدون عکس) و در سریع‌ترین حالتِ ممکن باز
-        # می‌شه.
+        # ─── عکسِ بنرِ پنل (قابِ self panel + عکسِ پروفایل + آیدیِ کاربر) که
+        # سلف از قبل ساخته و مسیرش رو توی panel_banner_cache گذاشته. اگه در
+        # دسترس بود، همون عکس رو به‌عنوانِ خودِ پیامِ پنل (با دکمه‌ها) می‌فرستیم
+        # تا دیگه لازم نباشه عکس و پنل دو پیامِ جدا باشن. اگه به هر دلیلی
+        # آماده نبود (نبودِ Pillow، خطای دانلودِ عکسِ پروفایل و...)، مثلِ قبل
+        # به‌صورتِ متنیِ ساده (بدون عکس) پنل باز می‌شه تا هیچ‌وقت کاربر با
+        # تایم‌اوتِ inline query مواجه نشه.
         caption = f"آیدی عددی: {owner_tg_id}\n\n{MAIN_TEXT}"
+
+        banner_path = None
+        try:
+            from panel_banner_cache import get_banner_path
+            banner_path = get_banner_path(owner_tg_id)
+        except Exception:
+            banner_path = None
+
+        if banner_path:
+            try:
+                result = await event.builder.photo(banner_path, text=caption, buttons=buttons)
+                await event.answer([result], cache_time=0)
+                return
+            except Exception:
+                pass  # اگه آپلود عکس هر مشکلی داشت، برو سراغِ حالتِ متنیِ ساده
 
         result = event.builder.article(
             title="پنل مدیریت سلف",

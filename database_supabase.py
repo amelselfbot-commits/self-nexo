@@ -1024,7 +1024,21 @@ def init_purchase_tables():
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         )
+        """,
         """
+        CREATE TABLE IF NOT EXISTS amel_discount_codes (
+            code TEXT PRIMARY KEY,
+            percent INTEGER NOT NULL,
+            max_uses INTEGER DEFAULT 0,
+            used_count INTEGER DEFAULT 0,
+            expires_at TIMESTAMP,
+            active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+        """,
+        "ALTER TABLE amel_payments ADD COLUMN IF NOT EXISTS discount_code TEXT",
+        "ALTER TABLE amel_payments ADD COLUMN IF NOT EXISTS discount_percent INTEGER",
+        "ALTER TABLE amel_payments ADD COLUMN IF NOT EXISTS original_toman_amount INTEGER"
     ]
     for q in queries:
         try:
@@ -1223,13 +1237,16 @@ def mark_subscription_notified(owner_id: int, status: str):
 
 def create_payment(owner_id: int, tg_id: int, ptype: str,
                    plan: str = None, diamond_amount: int = None,
-                   toman_amount: int = None) -> Optional[int]:
+                   toman_amount: int = None, discount_code: str = None,
+                   discount_percent: int = None, original_toman_amount: int = None) -> Optional[int]:
     try:
         r = execute_query(
             """INSERT INTO amel_payments
-               (owner_id, tg_id, type, plan, diamond_amount, toman_amount, status)
-               VALUES (%s, %s, %s, %s, %s, %s, 'pending') RETURNING id""",
-            (owner_id, tg_id, ptype, plan, diamond_amount, toman_amount), fetch_one=True
+               (owner_id, tg_id, type, plan, diamond_amount, toman_amount, status,
+                discount_code, discount_percent, original_toman_amount)
+               VALUES (%s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s) RETURNING id""",
+            (owner_id, tg_id, ptype, plan, diamond_amount, toman_amount,
+             discount_code, discount_percent, original_toman_amount), fetch_one=True
         )
         return r["id"] if r else None
     except Exception as e:
@@ -1265,6 +1282,73 @@ def get_pending_payments() -> list:
     except Exception as e:
         print(f"❌ get_pending_payments error: {e}")
         return []
+
+
+# ─── سیستم کدهای تخفیف ───────────────────────────────────────────────────────
+
+def create_discount_code(code: str, percent: int, max_uses: int = 0, expires_at=None) -> bool:
+    """
+    code: متنِ کد (بدون حساسیت به حروف بزرگ/کوچک، همیشه UPPER ذخیره می‌شه)
+    percent: درصدِ تخفیف (۱ تا ۹۹)
+    max_uses: حداکثر تعدادِ دفعاتِ استفاده؛ 0 یعنی نامحدود
+    expires_at: تاریخِ انقضا (datetime) یا None برای بدونِ انقضا
+    """
+    try:
+        code = code.strip().upper()
+        execute_query(
+            """INSERT INTO amel_discount_codes (code, percent, max_uses, used_count, expires_at, active)
+               VALUES (%s, %s, %s, 0, %s, TRUE)
+               ON CONFLICT (code) DO UPDATE SET
+                   percent=%s, max_uses=%s, expires_at=%s, active=TRUE""",
+            (code, percent, max_uses, expires_at, percent, max_uses, expires_at)
+        )
+        return True
+    except Exception as e:
+        print(f"❌ create_discount_code error: {e}")
+        return False
+
+
+def get_discount_code(code: str) -> Optional[Dict]:
+    try:
+        r = execute_query(
+            "SELECT * FROM amel_discount_codes WHERE code=%s",
+            (code.strip().upper(),), fetch_one=True
+        )
+        return dict(r) if r else None
+    except Exception as e:
+        print(f"❌ get_discount_code error: {e}")
+        return None
+
+
+def list_discount_codes() -> list:
+    try:
+        rows = execute_query(
+            "SELECT * FROM amel_discount_codes ORDER BY created_at DESC",
+            fetch_all=True
+        )
+        return [dict(r) for r in rows] if rows else []
+    except Exception as e:
+        print(f"❌ list_discount_codes error: {e}")
+        return []
+
+
+def delete_discount_code(code: str) -> bool:
+    try:
+        execute_query("DELETE FROM amel_discount_codes WHERE code=%s", (code.strip().upper(),))
+        return True
+    except Exception as e:
+        print(f"❌ delete_discount_code error: {e}")
+        return False
+
+
+def increment_discount_code_usage(code: str):
+    try:
+        execute_query(
+            "UPDATE amel_discount_codes SET used_count = used_count + 1 WHERE code=%s",
+            (code.strip().upper(),)
+        )
+    except Exception as e:
+        print(f"❌ increment_discount_code_usage error: {e}")
 
 
 # ─── سیستم ماموریت‌ها ────────────────────────────────────────────────────────

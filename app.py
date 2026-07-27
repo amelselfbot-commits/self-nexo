@@ -2,6 +2,10 @@ import asyncio
 import os
 import threading
 import time
+import hmac
+import hashlib
+import json as _json
+from urllib.parse import parse_qsl
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from telethon import TelegramClient
@@ -85,6 +89,100 @@ def owner_id() -> int:
     return int(session["owner_id"])
 
 
+# ─── مینی‌اپ تلگرامی (Telegram Mini App) ──────────────────────────────────────
+def _verify_telegram_init_data(init_data: str, bot_token: str, max_age_seconds: int = 86400):
+    """
+    اعتبارسنجیِ initData طبق مستندِ رسمیِ تلگرام:
+    https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+    خروجی: دیکشنریِ {"user": {...}, "auth_date": int} یا None اگه نامعتبر بود.
+    """
+    if not init_data or not bot_token:
+        return None
+    try:
+        parsed = dict(parse_qsl(init_data, strict_parsing=True))
+    except Exception:
+        return None
+
+    received_hash = parsed.pop("hash", None)
+    if not received_hash:
+        return None
+
+    data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
+    secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+    computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(computed_hash, received_hash):
+        return None
+
+    try:
+        auth_date = int(parsed.get("auth_date", "0"))
+    except ValueError:
+        auth_date = 0
+    if max_age_seconds and auth_date and (time.time() - auth_date) > max_age_seconds:
+        return None
+
+    user = None
+    if parsed.get("user"):
+        try:
+            user = _json.loads(parsed["user"])
+        except Exception:
+            user = None
+
+    return {"user": user, "auth_date": auth_date}
+
+
+@app.route("/miniapp")
+def miniapp_page():
+    """صفحه‌ی مینی‌اپِ تلگرامی. احرازِ هویت سمتِ کلاینت با initData انجام
+    می‌شه (نه با سشنِ قبلی)، پس اینجا لازم نیست login_required بذاریم."""
+    import telegram_bot as tb
+    return render_template("miniapp.html", bot_username=tb.BOT_USERNAME or "")
+
+
+@app.route("/api/miniapp/auth", methods=["POST"])
+def miniapp_auth():
+    data = request.json or {}
+    init_data = data.get("initData", "")
+
+    if not config.BOT_TOKEN:
+        return jsonify({"ok": False, "error": "ربات تنظیم نشده است."}), 500
+
+    result = _verify_telegram_init_data(init_data, config.BOT_TOKEN)
+    if not result or not result.get("user"):
+        return jsonify({"ok": False, "error": "احراز هویتِ تلگرام نامعتبر است."}), 401
+
+    tg_id = result["user"]["id"]
+    account = db.get_account_by_tg_id(tg_id)
+    if not account:
+        return jsonify({
+            "ok": False,
+            "error": "no_account",
+            "message": "ابتدا با ربات ثبت‌نام و سلف خودتون رو وصل کنید."
+        }), 404
+
+    if _is_miniapp_user_banned(account["id"]):
+        return jsonify({"ok": False, "error": "banned", "message": "شما توسط مالک از سلف بن شده‌اید."}), 403
+
+    session.permanent = False
+    session["owner_id"] = account["id"]
+
+    display_name = result["user"].get("first_name") or account.get("username") or "کاربر"
+    return jsonify({
+        "ok": True,
+        "account_id": account["id"],
+        "username": account.get("username"),
+        "display_name": display_name,
+        "is_owner": tg_id == getattr(config, "OWNER_TG_ID", None),
+    })
+
+
+def _is_miniapp_user_banned(account_id) -> bool:
+    try:
+        return db.get_setting(account_id, "self_banned", "0") == "1"
+    except Exception:
+        return False
+
+
 # ─── keep-alive ───────────────────────────────────────────────────────────────
 @app.route("/ping")
 def ping():
@@ -116,19 +214,6 @@ def index():
         username=account["username"],
         owner_id=oid,
     )
-
-
-@app.route("/miniapp")
-def miniapp():
-    """
-    مینی‌اپ تلگرام — همه‌ی قابلیت‌های پنل مدیریت (روشن/خاموش سلف، توکن،
-    لیست دشمن/دوست، امنیت، اتوماسیون، ابزارها، تنظیمات پیشرفته و اتصال/قطع
-    اکانت تلگرام) به‌صورت یک صفحه‌ی موبایل‌محور و سازگار با Telegram WebApp.
-    عمداً از login_required استفاده نمی‌کند: احراز هویت به‌صورت کامل در
-    سمت کلاینت (JS) و از طریق همان endpoint های موجود پنل انجام می‌شود، تا
-    داخل وب‌ویوی تلگرام به‌جای ریدایرکت سرور، یک تجربه‌ی SPA یکپارچه داشته باشیم.
-    """
-    return render_template("miniapp.html")
 
 
 @app.route("/register", methods=["GET"])
@@ -419,6 +504,25 @@ def toggle(key):
     return jsonify({"ok": True, "active": new_state})
 
 
+@app.route("/api/miniapp/overview", methods=["GET"])
+@login_required
+def miniapp_overview():
+    import telegram_bot as tb
+    oid = owner_id()
+    stats = db.get_token_stats(oid)
+    stats["ref_count"] = db.get_referral_count(oid)
+    bot_username = tb.BOT_USERNAME or ""
+    return jsonify({
+        "ok": True,
+        "running": bot_manager.is_running(oid),
+        "logged_in": db.get_setting(oid, "logged_in") == "1",
+        "tokens": stats,
+        "subscription": db.get_subscription(oid),
+        "bot_username": bot_username,
+        "ref_link": f"https://t.me/{bot_username}?start=ref_{oid}" if bot_username else "",
+    })
+
+
 # ─── API توکن ─────────────────────────────────────────────────────────────────
 @app.route("/api/tokens", methods=["GET"])
 @login_required
@@ -448,7 +552,7 @@ def claim_daily():
 @app.route("/api/enemies", methods=["GET"])
 @login_required
 def get_enemies():
-    return jsonify(db.get_enemies(owner_id()))
+    return jsonify(cache.get_enemies(owner_id()))
 
 
 @app.route("/api/enemies", methods=["POST"])
@@ -459,28 +563,28 @@ def add_enemy():
     uid = data.get("user_id")
     if not uid:
         return jsonify({"ok": False, "error": "آیدی کاربر الزامی است"}), 400
-    db.add_enemy(oid, int(uid), data.get("username"), data.get("name"))
+    cache.add_enemy(oid, int(uid), data.get("username"), data.get("name"))
     return jsonify({"ok": True})
 
 
 @app.route("/api/enemies/<int:uid>", methods=["DELETE"])
 @login_required
 def del_enemy(uid):
-    db.remove_enemy(owner_id(), uid)
+    cache.remove_enemy(owner_id(), uid)
     return jsonify({"ok": True})
 
 
 @app.route("/api/enemies/clear", methods=["POST"])
 @login_required
 def clear_enemies_api():
-    db.clear_enemies(owner_id())
+    cache.clear_enemies(owner_id())
     return jsonify({"ok": True})
 
 
 @app.route("/api/friends", methods=["GET"])
 @login_required
 def get_friends():
-    return jsonify(db.get_friends(owner_id()))
+    return jsonify(cache.get_friends(owner_id()))
 
 
 @app.route("/api/friends", methods=["POST"])
@@ -491,21 +595,21 @@ def add_friend():
     uid = data.get("user_id")
     if not uid:
         return jsonify({"ok": False, "error": "آیدی کاربر الزامی است"}), 400
-    db.add_friend(oid, int(uid), data.get("username"), data.get("name"))
+    cache.add_friend(oid, int(uid), data.get("username"), data.get("name"))
     return jsonify({"ok": True})
 
 
 @app.route("/api/friends/<int:uid>", methods=["DELETE"])
 @login_required
 def del_friend(uid):
-    db.remove_friend(owner_id(), uid)
+    cache.remove_friend(owner_id(), uid)
     return jsonify({"ok": True})
 
 
 @app.route("/api/friends/clear", methods=["POST"])
 @login_required
 def clear_friends_api():
-    db.clear_friends(owner_id())
+    cache.clear_friends(owner_id())
     return jsonify({"ok": True})
 
 
