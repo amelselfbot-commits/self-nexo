@@ -4,6 +4,7 @@ import threading
 import time
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask_cors import CORS
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors import (
@@ -20,6 +21,29 @@ from bot import bot_manager
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 app.config["PERMANENT_SESSION_LIFETIME"] = 180  # ۳ دقیقه بی‌کاری → لاگ‌اوت خودکار
+
+# ─── مینی‌اپ روی دامنه‌ی جدا ──────────────────────────────────────────────────
+# چون مینی‌اپ حالا روی یک هاست/دامنه‌ی دیگر اجرا می‌شود، درخواست‌هایش به این
+# بک‌اند از نوع cross-origin هستند. برای این‌که کوکی سشن (لاگین) هم بین دو
+# دامنه کار کند باید:
+#   ۱. CORS با supports_credentials=True و origin دقیقِ مینی‌اپ فعال شود
+#      (نمی‌توان از "*" استفاده کرد چون با credentials سازگار نیست).
+#   ۲. کوکی سشن با SameSite=None و Secure=True ست شود (یعنی حتماً باید
+#      بک‌اند اصلی هم روی HTTPS باشد).
+# آدرس(های) مینی‌اپ را در Environment Variable با نام MINIAPP_ORIGINS
+# (جدا‌شده با کاما) ست کنید، مثلاً:
+#   MINIAPP_ORIGINS=https://nexoself-miniapp.onrender.com
+MINIAPP_ORIGINS = [
+    o.strip() for o in os.environ.get("MINIAPP_ORIGINS", "").split(",") if o.strip()
+]
+CORS(
+    app,
+    supports_credentials=True,
+    origins=MINIAPP_ORIGINS if MINIAPP_ORIGINS else "*",
+    resources={r"/api/*": {"origins": MINIAPP_ORIGINS if MINIAPP_ORIGINS else "*"}},
+)
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["SESSION_COOKIE_SECURE"] = True
 
 
 def _ensure_helper_bot():
@@ -116,19 +140,6 @@ def index():
         username=account["username"],
         owner_id=oid,
     )
-
-
-@app.route("/miniapp")
-def miniapp():
-    """
-    مینی‌اپ تلگرام — همه‌ی قابلیت‌های پنل مدیریت (روشن/خاموش سلف، توکن،
-    لیست دشمن/دوست، امنیت، اتوماسیون، ابزارها، تنظیمات پیشرفته و اتصال/قطع
-    اکانت تلگرام) به‌صورت یک صفحه‌ی موبایل‌محور و سازگار با Telegram WebApp.
-    عمداً از login_required استفاده نمی‌کند: احراز هویت به‌صورت کامل در
-    سمت کلاینت (JS) و از طریق همان endpoint های موجود پنل انجام می‌شود، تا
-    داخل وب‌ویوی تلگرام به‌جای ریدایرکت سرور، یک تجربه‌ی SPA یکپارچه داشته باشیم.
-    """
-    return render_template("miniapp.html")
 
 
 @app.route("/register", methods=["GET"])
