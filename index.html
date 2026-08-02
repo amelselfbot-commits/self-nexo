@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>سازنده کانفیگ V2Ray</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>⚡ سازنده کانفیگ V2Ray</h1>
+            <p>اطلاعات سرور را وارد کن تا لینک کانفیگ ساخته شود</p>
+
+            <form id="configForm">
+                <div class="form-group">
+                    <label>🌐 آدرس سرور (IP یا دامنه)</label>
+                    <input type="text" id="serverAddress" placeholder="مثال: 123.45.67.89 یا vpn.example.com" required />
+                </div>
+
+                <div class="form-group">
+                    <label>🔑 UUID (شناسه کاربر)</label>
+                    <div class="uuid-wrapper">
+                        <input type="text" id="uuid" placeholder="UUID خود را وارد کن" required />
+                        <button type="button" id="generateUuid" class="btn-small">🔄 تولید خودکار</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>📁 مسیر WebSocket (Path)</label>
+                    <input type="text" id="wsPath" placeholder="مثال: /v2ray" value="/v2ray" />
+                </div>
+
+                <div class="form-group">
+                    <label>🔌 پورت</label>
+                    <input type="number" id="port" placeholder="مثال: 443" value="443" />
+                </div>
+
+                <div class="form-group">
+                    <label>🔒 TLS (SSL)</label>
+                    <select id="tls">
+                        <option value="true">فعال (TLS)</option>
+                        <option value="false">غیرفعال</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>📝 نام کانفیگ (اختیاری)</label>
+                    <input type="text" id="configName" placeholder="مثال: My VPN" value="My V2Ray" />
+                </div>
+
+                <button type="submit" class="btn-primary">🚀 ساخت کانفیگ</button>
+            </form>
+
+            <div id="result" style="display:none;">
+                <h3>✅ کانفیگ ساخته شد</h3>
+                <div class="result-box">
+                    <div id="configLinkContainer">
+                        <label>🔗 لینک کانفیگ (برای V2RayNG / Nekoray):</label>
+                        <div class="link-wrapper">
+                            <input type="text" id="configLink" readonly />
+                            <button id="copyLink" class="btn-small">📋 کپی</button>
+                        </div>
+                    </div>
+                    <div id="jsonContainer" style="margin-top: 20px;">
+                        <label>📄 محتوای JSON کانفیگ:</label>
+                        <pre id="configJson"></pre>
+                        <button id="copyJson" class="btn-small">📋 کپی JSON</button>
+                    </div>
+                </div>
+                <button id="resetBtn" class="btn-secondary">🔙 ساخت مجدد</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
